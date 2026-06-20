@@ -1533,6 +1533,18 @@ function Header({
 }: HeaderProps) {
   const [showUserMenu, setShowUserMenu] = useState(false);
   const timeoutRef = useRef<number | null>(null);
+  const [starCount, setStarCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    fetch("https://api.github.com/repos/pnm03/MIW_planner_note")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data && typeof data.stargazers_count === "number") {
+          setStarCount(data.stargazers_count);
+        }
+      })
+      .catch((err) => console.error("Error fetching GitHub stars:", err));
+  }, []);
 
   const handleMouseEnter = () => {
     if (timeoutRef.current) {
@@ -1687,7 +1699,7 @@ function Header({
                 }}
               >
                 <Star size={12} fill="#eab308" style={{ color: "#eab308" }} />
-                Star
+                Star {starCount !== null ? `(${starCount})` : ""}
               </a>
               {!user && (
                 <button
