@@ -228,7 +228,8 @@ button:disabled {
   transition: 160ms ease;
 }
 
-.header-actions button:hover {
+.header-actions button:hover,
+.header-star-btn:hover {
   color: var(--accent);
   border-color: color-mix(in srgb, var(--accent) 45%, var(--line-strong));
   transform: translateY(-1px);

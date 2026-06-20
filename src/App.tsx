@@ -35,6 +35,7 @@ import {
   CheckCircle2,
   Target,
   Share2,
+  Star,
 } from "lucide-react";
 import {
   type ArchivedWeek,
@@ -1658,6 +1659,36 @@ function Header({
           {view === "plan" && (
             <>
               <button onClick={() => onView("stats")}>Thống kê</button>
+              <a
+                href="https://github.com/pnm03/MIW_planner_note"
+                target="_blank"
+                rel="noopener noreferrer"
+                title="Star dự án trên GitHub"
+                className="header-star-btn"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: "6px",
+                  minHeight: "30px",
+                  padding: "5px 11px",
+                  border: "1px solid var(--line-strong)",
+                  borderRadius: "8px",
+                  color: "var(--ink-soft)",
+                  background: "var(--paper)",
+                  fontFamily: "JetBrains Mono, monospace",
+                  fontSize: "10px",
+                  fontWeight: 400,
+                  letterSpacing: "0.07em",
+                  textTransform: "uppercase",
+                  textDecoration: "none",
+                  cursor: "pointer",
+                  transition: "160ms ease",
+                }}
+              >
+                <Star size={12} fill="#eab308" style={{ color: "#eab308" }} />
+                Star
+              </a>
               {!user && (
                 <button
                   onClick={() => {
