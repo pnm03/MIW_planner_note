@@ -1,4 +1,4 @@
-# miw planner 🌟
+# miw planner
 
 A calm, high-performance weekly planner for projects, tasks, and goals, featuring Supabase synchronization, theme customization, analytics, and project sharing.
 
@@ -8,13 +8,13 @@ Live Demo: [https://weeknote-planner.vercel.app](https://weeknote-planner.vercel
 
 ## Features
 
-- 📅 **Calm Weekly Planner**: Schedule tasks for specific days of the week or clear completed tasks cleanly.
-- 📐 **Eisenhower Matrix**: Auto-categorize tasks into Urgent/Important quadrants for better priority management.
-- 📊 **Performance Stats**: Insights on task completion rates, weekly pacing, and priority distributions.
-- ☁️ **Supabase Cloud Syncing**: Smooth two-way synchronization between local device storage and the cloud when logged in.
-- 🔒 **Account Security**: Secure login, registration, password recovery, and safe self-service account deletion.
-- 🔗 **Template Sharing**: Share project templates with other users via generated Base64 sharing URLs.
-- 🎨 **Beautiful Custom Themes**: Choose between various high-contrast newsreader serif styles, textures, and dark modes.
+- **Calm Weekly Planner**: Schedule tasks for specific days of the week or clear completed tasks cleanly.
+- **Eisenhower Matrix**: Auto-categorize tasks into Urgent/Important quadrants for better priority management.
+- **Performance Stats**: Insights on task completion rates, weekly pacing, and priority distributions.
+- **Supabase Cloud Syncing**: Smooth two-way synchronization between local device storage and the cloud when logged in.
+- **Account Security**: Secure login, registration, password recovery, and safe self-service account deletion.
+- **Template Sharing**: Share project templates with other users via generated Base64 sharing URLs.
+- **Beautiful Custom Themes**: Choose between various high-contrast newsreader serif styles, textures, and dark modes.
 
 ---
 
