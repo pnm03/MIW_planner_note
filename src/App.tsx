@@ -3853,11 +3853,13 @@ function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps
   const [startOpen, setStartOpen] = useState(false);
   const [endOpen, setEndOpen] = useState(false);
   const [timeError, setTimeError] = useState("");
+  const [typedStart, setTypedStart] = useState("");
+  const [typedEnd, setTypedEnd] = useState("");
 
   const startOptions = useMemo(() => {
     const options: string[] = [];
     for (let h = 0; h < 24; h++) {
-      for (let m = 0; m < 60; m += 15) {
+      for (let m = 0; m < 60; m += 30) {
         const hh = h.toString().padStart(2, '0');
         const mm = m.toString().padStart(2, '0');
         options.push(`${hh}:${mm}`);
@@ -3872,10 +3874,17 @@ function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps
 
   const endOptions = useMemo(() => {
     if (!currentStart) return [];
-    const [sh, sm] = currentStart.split(":").map(Number);
+    let formattedStart = currentStart;
+    if (/^[0-9]:[0-5][0-9]$/.test(formattedStart)) {
+      formattedStart = "0" + formattedStart;
+    }
+    if (!/^([0-1][0-9]|2[0-3]):[0-5][0-9]$/.test(formattedStart)) {
+      return [];
+    }
+    const [sh, sm] = formattedStart.split(":").map(Number);
     const startMin = sh * 60 + sm;
     const options: { value: string; label: string }[] = [];
-    for (let min = startMin + 15; min <= 1440; min += 15) {
+    for (let min = startMin + 30; min <= 1440; min += 30) {
       const h = Math.floor(min / 60);
       const m = min % 60;
       let timeVal = "";
@@ -3906,7 +3915,11 @@ function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps
 
   const openTimeModalForDay = (day: DayKey) => {
     setActiveModalDay(day);
-    setTempDayTimes(draft.dayTimes ?? {});
+    const times = draft.dayTimes ?? {};
+    setTempDayTimes(times);
+    const dt = times[day] || {};
+    setTypedStart(dt.startTime ?? "");
+    setTypedEnd(dt.endTime ?? "");
     setTimeError("");
     setStartOpen(false);
     setEndOpen(false);
@@ -3915,8 +3928,43 @@ function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps
 
   const handleTimeConfirm = () => {
     const updatedDayTimes = { ...tempDayTimes };
+
+    const cleanStart = typedStart.trim();
+    const cleanEnd = typedEnd.trim();
+
+    if (cleanStart || cleanEnd) {
+      if (!cleanStart || !cleanEnd) {
+        setTimeError(`Vui lòng nhập đầy đủ giờ bắt đầu và kết thúc cho ${dayLabels[activeModalDay]}.`);
+        return;
+      }
+      let formattedStart = cleanStart;
+      let formattedEnd = cleanEnd;
+      if (/^[0-9]:[0-5][0-9]$/.test(formattedStart)) formattedStart = "0" + formattedStart;
+      if (/^[0-9]:[0-5][0-9]$/.test(formattedEnd)) formattedEnd = "0" + formattedEnd;
+
+      const timeRegex = /^([0-1][0-9]|2[0-3]):[0-5][0-9]$|^24:00$/;
+      if (!timeRegex.test(formattedStart) || !timeRegex.test(formattedEnd)) {
+        setTimeError(`Định dạng giờ ở ${dayLabels[activeModalDay]} không hợp lệ (hỗ trợ HH:MM).`);
+        return;
+      }
+
+      const [sh, sm] = formattedStart.split(":").map(Number);
+      const [eh, em] = formattedEnd.split(":").map(Number);
+      if (eh * 60 + em <= sh * 60 + sm) {
+        setTimeError(`Giờ kết thúc phải sau giờ bắt đầu ở ${dayLabels[activeModalDay]}.`);
+        return;
+      }
+
+      updatedDayTimes[activeModalDay] = {
+        startTime: formattedStart,
+        endTime: formattedEnd
+      };
+    } else {
+      delete updatedDayTimes[activeModalDay];
+    }
     
     for (const d of dayKeys) {
+      if (d === activeModalDay) continue; // already validated
       const dt = updatedDayTimes[d];
       if (dt) {
         if ((dt.startTime && !dt.endTime) || (!dt.startTime && dt.endTime)) {
@@ -4248,48 +4296,6 @@ function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps
                   .join(", ")}.`
               : "Chưa xếp lịch — sẽ chưa hiện trong tuần."}
           </small>
-          
-          {draft.days.length > 0 && (
-            <div className="time-range-section" style={{ marginTop: "12px", padding: "10px", border: "1px solid var(--line)", borderRadius: "8px", background: "color-mix(in srgb, var(--paper) 50%, var(--bg))" }}>
-              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                <span style={{ fontSize: "11px", fontWeight: "bold", color: "var(--ink-soft)", display: "inline-flex", alignItems: "center", gap: "5px" }}>
-                  <Clock3 size={13} style={{ color: "var(--ink-faint)" }} />
-                  Bảng giờ thực hiện theo ngày:
-                </span>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
-                  {draft.days.map(d => {
-                    const dt = draft.dayTimes?.[d];
-                    return (
-                      <div 
-                        key={d} 
-                        onClick={() => openTimeModalForDay(d)}
-                        style={{ 
-                          fontSize: "11px", 
-                          padding: "4px 8px", 
-                          borderRadius: "6px", 
-                          border: "1px solid var(--line-strong)", 
-                          background: "var(--paper)", 
-                          cursor: "pointer",
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: "4px"
-                        }}
-                      >
-                        <strong>{dayLabels[d]}:</strong>{" "}
-                        {dt?.startTime && dt?.endTime ? (
-                          <span style={{ color: "var(--accent)", fontWeight: 500 }}>
-                            {dt.startTime} - {dt.endTime} ({getDurationText(dt.startTime, dt.endTime)})
-                          </span>
-                        ) : (
-                          <span style={{ color: "var(--ink-faint)", textDecoration: "underline" }}>Đặt giờ</span>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-          )}
         </div>
 
         <label className="field-label">
@@ -4436,6 +4442,9 @@ function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps
                     }}
                     onClick={() => {
                       setActiveModalDay(day);
+                      const dt = tempDayTimes[day] || {};
+                      setTypedStart(dt.startTime ?? "");
+                      setTypedEnd(dt.endTime ?? "");
                       setStartOpen(false);
                       setEndOpen(false);
                     }}
@@ -4462,12 +4471,28 @@ function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps
               <div style={{ display: "flex", gap: "10px", alignItems: "center", position: "relative" }}>
                 <div style={{ position: "relative", flex: 1 }}>
                   <label style={{ display: "block", fontSize: "11px", fontWeight: "bold", marginBottom: "4px", color: "var(--ink-soft)" }}>Bắt đầu:</label>
-                  <button
-                    type="button"
-                    className={`custom-time-picker-button ${startOpen ? "active" : ""}`}
-                    onClick={() => {
-                      setStartOpen(!startOpen);
+                  <input
+                    type="text"
+                    value={typedStart}
+                    placeholder="00:00"
+                    onFocus={() => {
+                      setStartOpen(true);
                       setEndOpen(false);
+                    }}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setTypedStart(val);
+                      let checkVal = val.trim();
+                      if (/^[0-9]:[0-5][0-9]$/.test(checkVal)) checkVal = "0" + checkVal;
+                      if (/^([0-1][0-9]|2[0-3]):[0-5][0-9]$|^24:00$/.test(checkVal)) {
+                        setTempDayTimes((prev) => ({
+                          ...prev,
+                          [activeModalDay]: {
+                            ...prev[activeModalDay],
+                            startTime: checkVal
+                          }
+                        }));
+                      }
                     }}
                     style={{
                       width: "100%",
@@ -4475,15 +4500,12 @@ function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps
                       borderRadius: "6px",
                       border: "1px solid var(--line-strong)",
                       background: "var(--paper)",
-                      color: currentStart ? "var(--ink)" : "var(--ink-faint)",
-                      cursor: "pointer",
+                      color: "var(--ink)",
                       textAlign: "center",
                       fontSize: "14px",
                       fontFamily: "inherit"
                     }}
-                  >
-                    {currentStart || "--:--"}
-                  </button>
+                  />
                   
                   {startOpen && (
                     <>
@@ -4546,6 +4568,8 @@ function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps
                                   endTime: nextEnd
                                 }
                               }));
+                              setTypedStart(opt);
+                              if (nextEnd) setTypedEnd(nextEnd);
                               setStartOpen(false);
                             }}
                             className="time-option-hover"
@@ -4562,13 +4586,29 @@ function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps
 
                 <div style={{ position: "relative", flex: 1 }}>
                   <label style={{ display: "block", fontSize: "11px", fontWeight: "bold", marginBottom: "4px", color: "var(--ink-soft)" }}>Kết thúc:</label>
-                  <button
-                    type="button"
+                  <input
+                    type="text"
+                    value={typedEnd}
+                    placeholder="00:00"
                     disabled={!currentStart}
-                    className={`custom-time-picker-button ${endOpen ? "active" : ""}`}
-                    onClick={() => {
-                      setEndOpen(!endOpen);
+                    onFocus={() => {
+                      setEndOpen(true);
                       setStartOpen(false);
+                    }}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setTypedEnd(val);
+                      let checkVal = val.trim();
+                      if (/^[0-9]:[0-5][0-9]$/.test(checkVal)) checkVal = "0" + checkVal;
+                      if (/^([0-1][0-9]|2[0-3]):[0-5][0-9]$|^24:00$/.test(checkVal)) {
+                        setTempDayTimes((prev) => ({
+                          ...prev,
+                          [activeModalDay]: {
+                            ...prev[activeModalDay],
+                            endTime: checkVal
+                          }
+                        }));
+                      }
                     }}
                     style={{
                       width: "100%",
@@ -4576,16 +4616,13 @@ function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps
                       borderRadius: "6px",
                       border: "1px solid var(--line-strong)",
                       background: "var(--paper)",
-                      color: currentEnd ? "var(--ink)" : "var(--ink-faint)",
-                      cursor: currentStart ? "pointer" : "not-allowed",
+                      color: "var(--ink)",
                       textAlign: "center",
                       fontSize: "14px",
                       opacity: currentStart ? 1 : 0.6,
                       fontFamily: "inherit"
                     }}
-                  >
-                    {currentEnd || "--:--"}
-                  </button>
+                  />
 
                   {endOpen && (
                     <>
@@ -4628,6 +4665,7 @@ function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps
                                   endTime: opt.value
                                 }
                               }));
+                              setTypedEnd(opt.value);
                               setEndOpen(false);
                             }}
                             className="time-option-hover"
@@ -4641,10 +4679,16 @@ function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps
                 </div>
               </div>
 
-              {currentStart && currentEnd && (
+              {((typedStart && typedEnd) || (currentStart && currentEnd)) && (
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 10px", background: "var(--bg-soft)", borderRadius: "6px", fontSize: "11px" }}>
                   <span style={{ color: "var(--accent)", fontWeight: 600 }}>
-                    Thời lượng: {getDurationText(currentStart, currentEnd)}
+                    Thời lượng: {(() => {
+                      let startFormat = typedStart.trim();
+                      let endFormat = typedEnd.trim();
+                      if (/^[0-9]:[0-5][0-9]$/.test(startFormat)) startFormat = "0" + startFormat;
+                      if (/^[0-9]:[0-5][0-9]$/.test(endFormat)) endFormat = "0" + endFormat;
+                      return getDurationText(startFormat, endFormat) || "—";
+                    })()}
                   </span>
                   <button
                     type="button"
@@ -4662,6 +4706,8 @@ function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps
                         delete copy[activeModalDay];
                         return copy;
                       });
+                      setTypedStart("");
+                      setTypedEnd("");
                       setStartOpen(false);
                       setEndOpen(false);
                     }}
