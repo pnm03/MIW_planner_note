@@ -75,7 +75,6 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "./supabaseClient";
 import { AuthPage } from "./AuthPage";
-import logoImg from "./logo.jpg";
 
 type View = "plan" | "days" | "stats" | "archive" | "auth";
 
@@ -1587,8 +1586,7 @@ function Header({
   return (
     <header className="site-header">
       <div className="header-main">
-        <button className="brand" onClick={() => onView("plan")} style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-          <img src={logoImg} alt="logo" style={{ width: "26px", height: "26px", borderRadius: "6px", objectFit: "cover" }} />
+        <button className="brand" onClick={() => onView("plan")}>
           miw planner<span>.</span>
         </button>
 
