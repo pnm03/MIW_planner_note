@@ -3848,6 +3848,7 @@ function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps
 
   const [showTimeModal, setShowTimeModal] = useState(false);
   const [activeModalDay, setActiveModalDay] = useState<DayKey>("mon");
+  const [modalSelectedDays, setModalSelectedDays] = useState<DayKey[]>(() => [...draft.days]);
   const [tempDayTimes, setTempDayTimes] = useState<Partial<Record<DayKey, { startTime?: string; endTime?: string }>>>(() => draft.dayTimes ?? {});
   
   const [startOpen, setStartOpen] = useState(false);
@@ -3917,6 +3918,7 @@ function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps
     setActiveModalDay(day);
     const times = draft.dayTimes ?? {};
     setTempDayTimes(times);
+    setModalSelectedDays([...draft.days]);
     const dt = times[day] || {};
     setTypedStart(dt.startTime ?? "");
     setTypedEnd(dt.endTime ?? "");
@@ -3934,7 +3936,7 @@ function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps
 
     if (cleanStart || cleanEnd) {
       if (!cleanStart || !cleanEnd) {
-        setTimeError(`Vui lòng nhập đầy đủ giờ bắt đầu và kết thúc cho ${dayLabels[activeModalDay]}.`);
+        setTimeError(`Vui lòng nhập đầy đủ giờ bắt đầu và kết thúc.`);
         return;
       }
       let formattedStart = cleanStart;
@@ -3944,27 +3946,39 @@ function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps
 
       const timeRegex = /^([0-1][0-9]|2[0-3]):[0-5][0-9]$|^24:00$/;
       if (!timeRegex.test(formattedStart) || !timeRegex.test(formattedEnd)) {
-        setTimeError(`Định dạng giờ ở ${dayLabels[activeModalDay]} không hợp lệ (hỗ trợ HH:MM).`);
+        setTimeError(`Định dạng giờ không hợp lệ (hỗ trợ HH:MM).`);
         return;
       }
 
       const [sh, sm] = formattedStart.split(":").map(Number);
       const [eh, em] = formattedEnd.split(":").map(Number);
       if (eh * 60 + em <= sh * 60 + sm) {
-        setTimeError(`Giờ kết thúc phải sau giờ bắt đầu ở ${dayLabels[activeModalDay]}.`);
+        setTimeError(`Giờ kết thúc phải sau giờ bắt đầu.`);
         return;
       }
 
-      updatedDayTimes[activeModalDay] = {
-        startTime: formattedStart,
-        endTime: formattedEnd
-      };
+      // Update all selected days
+      modalSelectedDays.forEach(d => {
+        updatedDayTimes[d] = {
+          startTime: formattedStart,
+          endTime: formattedEnd
+        };
+      });
     } else {
-      delete updatedDayTimes[activeModalDay];
+      // Delete times for selected days if inputs are empty
+      modalSelectedDays.forEach(d => {
+        delete updatedDayTimes[d];
+      });
     }
-    
+
+    // Delete times for any day NOT in modalSelectedDays
+    dayKeys.forEach(d => {
+      if (!modalSelectedDays.includes(d)) {
+        delete updatedDayTimes[d];
+      }
+    });
+
     for (const d of dayKeys) {
-      if (d === activeModalDay) continue; // already validated
       const dt = updatedDayTimes[d];
       if (dt) {
         if ((dt.startTime && !dt.endTime) || (!dt.startTime && dt.endTime)) {
@@ -3981,7 +3995,7 @@ function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps
         }
       }
     }
-    
+
     setTimeError("");
 
     let conflictTaskName = "";
@@ -4033,14 +4047,6 @@ function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps
     }
 
     setDraft((current) => {
-      const newDays = [...current.days];
-      dayKeys.forEach(d => {
-        const dt = updatedDayTimes[d];
-        if (dt?.startTime && dt?.endTime && !newDays.includes(d)) {
-          newDays.push(d);
-        }
-      });
-
       const cleanedDayTimes: Partial<Record<DayKey, { startTime?: string; endTime?: string }>> = {};
       dayKeys.forEach(d => {
         const dt = updatedDayTimes[d];
@@ -4055,7 +4061,7 @@ function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps
 
       return {
         ...current,
-        days: newDays,
+        days: modalSelectedDays,
         dayTimes: cleanedDayTimes,
         startTime: fallbackStart,
         endTime: fallbackEnd
@@ -4404,291 +4410,32 @@ function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps
         </div>
       </div>
 
-      {showTimeModal && (
-        <Modal onClose={() => setShowTimeModal(false)} narrow>
-          <div className="time-picker-modal" style={{ padding: "24px 20px 20px", width: "100%", position: "relative", overflowY: "auto", maxHeight: "100%" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px", borderBottom: "1px solid var(--line)", paddingBottom: "10px" }}>
-              <div className="modal-kicker" style={{ margin: 0 }}>Cấu hình thời gian</div>
-              <button
-                className="modal-close"
-                onClick={() => setShowTimeModal(false)}
-                aria-label="Đóng"
-                style={{ top: "10px", right: "10px", width: "28px", height: "28px" }}
-              >
-                <X size={16} />
-              </button>
-            </div>
-            
-            <h3 style={{ marginTop: "8px", fontSize: "16px", color: "var(--ink)", fontFamily: "Fraunces, serif" }}>Đặt giờ theo ngày</h3>
-            <p style={{ margin: "4px 0 16px 0", fontSize: "12px", color: "var(--ink-faint)", lineHeight: "1.4" }}>
-              Chọn thứ trong tuần để đặt giờ cụ thể (hỗ trợ các khung giờ khác nhau giữa các thứ).
-            </p>
+      {showTimeModal && (() => {
+        const isNoDaySelected = modalSelectedDays.length === 0;
 
-            <div className="time-picker-day-grid">
-              {dayKeys.map((day) => {
-                const isSelected = draft.days.includes(day);
-                const isActive = activeModalDay === day;
-                const dt = tempDayTimes[day];
-                const hasTime = !!dt?.startTime && !!dt?.endTime;
-                
-                return (
-                  <div
-                    key={day}
-                    className={`time-picker-day-btn-wrapper${isActive ? " active" : ""}${isSelected && !isActive ? " selected" : ""}`}
-                  >
-                    <button
-                      key={day}
-                      type="button"
-                      className={`time-picker-day-btn${isActive ? " active" : ""}${isSelected && !isActive ? " selected" : ""}`}
-                      onClick={() => {
-                        setActiveModalDay(day);
-                        const dayTime = tempDayTimes[day] || {};
-                        setTypedStart(dayTime.startTime ?? "");
-                        setTypedEnd(dayTime.endTime ?? "");
-                        setStartOpen(false);
-                        setEndOpen(false);
-                      }}
-                    >
-                      {dayLabels[day]}
-                    </button>
-                    
-                    <div className="time-picker-day-time-label">
-                      {hasTime ? (
-                        <>
-                          <div>{dt.startTime}</div>
-                          <div style={{ fontSize: "7px", opacity: 0.6, margin: "-2px 0" }}>-</div>
-                          <div>{dt.endTime}</div>
-                        </>
-                      ) : (
-                        <span style={{ opacity: 0.25 }}>—</span>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            <div style={{ borderTop: "1px solid var(--line)", margin: "8px 0 14px 0" }} />
-
-            <div style={{ display: "grid", gap: "12px", marginBottom: "20px" }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <span style={{ fontSize: "12px", fontWeight: 600, color: "var(--ink)" }}>
-                  Thứ đang sửa: <span style={{ color: "var(--accent)" }}>{dayLabels[activeModalDay]}</span>
-                </span>
-                {!draft.days.includes(activeModalDay) && (
-                  <span style={{ fontSize: "10px", color: "var(--accent)", background: "var(--accent-soft)", padding: "2px 6px", borderRadius: "4px" }}>
-                    Tự động gán
-                  </span>
-                )}
+        return (
+          <Modal onClose={() => setShowTimeModal(false)} narrow>
+            <div className="time-picker-modal" style={{ padding: "24px 20px 20px", width: "100%", position: "relative", overflowY: "auto", maxHeight: "100%" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px", borderBottom: "1px solid var(--line)", paddingBottom: "10px" }}>
+                <div className="modal-kicker" style={{ margin: 0 }}>Cấu hình thời gian</div>
+                <button
+                  className="modal-close"
+                  onClick={() => setShowTimeModal(false)}
+                  aria-label="Đóng"
+                  style={{ top: "10px", right: "10px", width: "28px", height: "28px" }}
+                >
+                  <X size={16} />
+                </button>
               </div>
+              
+              <h3 style={{ marginTop: "8px", fontSize: "16px", color: "var(--ink)", fontFamily: "Fraunces, serif" }}>Đặt giờ theo ngày</h3>
+              <p style={{ margin: "4px 0 16px 0", fontSize: "12px", color: "var(--ink-faint)", lineHeight: "1.4" }}>
+                Chọn thứ trong tuần để đặt giờ cụ thể (hỗ trợ các khung giờ khác nhau giữa các thứ).
+              </p>
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 14px 1fr", gap: "8px", alignItems: "end", position: "relative" }}>
-                <div style={{ position: "relative" }}>
-                  <label style={{ display: "block", fontSize: "11px", fontWeight: "bold", marginBottom: "4px", color: "var(--ink-soft)" }}>Bắt đầu:</label>
-                  <input
-                    type="text"
-                    value={typedStart}
-                    placeholder="00:00"
-                    className="time-picker-input"
-                    onFocus={() => {
-                      setStartOpen(true);
-                      setEndOpen(false);
-                    }}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      setTypedStart(val);
-                      let checkVal = val.trim();
-                      if (/^[0-9]:[0-5][0-9]$/.test(checkVal)) checkVal = "0" + checkVal;
-                      if (/^([0-1][0-9]|2[0-3]):[0-5][0-9]$|^24:00$/.test(checkVal)) {
-                        setTempDayTimes((prev) => ({
-                          ...prev,
-                          [activeModalDay]: {
-                            ...prev[activeModalDay],
-                            startTime: checkVal
-                          }
-                        }));
-                      }
-                    }}
-                  />
-                  
-                  {startOpen && (
-                    <>
-                      <div
-                        style={{ position: "fixed", inset: 0, zIndex: 999 }}
-                        onClick={() => setStartOpen(false)}
-                      />
-                      <div
-                        style={{
-                          position: "absolute",
-                          top: "100%",
-                          left: 0,
-                          right: 0,
-                          zIndex: 1000,
-                          background: "var(--paper)",
-                          border: "1px solid var(--line-strong)",
-                          borderRadius: "8px",
-                          boxShadow: "var(--shadow)",
-                          maxHeight: "180px",
-                          overflowY: "auto",
-                          marginTop: "4px",
-                          padding: "4px 0"
-                        }}
-                      >
-                        {startOptions.map((opt) => (
-                          <div
-                            key={opt}
-                            style={{
-                              padding: "8px 12px",
-                              fontSize: "13px",
-                              color: "var(--ink)",
-                              cursor: "pointer",
-                              backgroundColor: opt === currentStart ? "var(--accent-soft)" : "transparent"
-                            }}
-                            onClick={() => {
-                              let nextEnd = currentEnd;
-                              if (currentEnd) {
-                                const [sh, sm] = opt.split(":").map(Number);
-                                const [eh, em] = currentEnd.split(":").map(Number);
-                                if (eh * 60 + em <= sh * 60 + sm) {
-                                  const endMin = (sh * 60 + sm + 60) % 1440;
-                                  const ehNew = Math.floor(endMin / 60);
-                                  const emNew = endMin % 60;
-                                  nextEnd = `${ehNew.toString().padStart(2, '0')}:${emNew.toString().padStart(2, '0')}`;
-                                }
-                              } else {
-                                const [sh, sm] = opt.split(":").map(Number);
-                                const endMin = sh * 60 + sm + 60;
-                                if (endMin <= 1440) {
-                                  const ehNew = Math.floor(endMin / 60);
-                                  const emNew = endMin % 60;
-                                  nextEnd = ehNew === 24 && emNew === 0 ? "24:00" : `${ehNew.toString().padStart(2, '0')}:${emNew.toString().padStart(2, '0')}`;
-                                }
-                              }
-                              
-                              setTempDayTimes((prev) => ({
-                                ...prev,
-                                [activeModalDay]: {
-                                  startTime: opt,
-                                  endTime: nextEnd
-                                }
-                              }));
-                              setTypedStart(opt);
-                              if (nextEnd) setTypedEnd(nextEnd);
-                              setStartOpen(false);
-                            }}
-                            className="time-option-hover"
-                          >
-                            {opt}
-                          </div>
-                        ))}
-                      </div>
-                    </>
-                  )}
-                </div>
-
-                <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: "38px", color: "var(--ink-soft)", fontSize: "16px", fontWeight: 500 }}>
-                  –
-                </div>
-
-                <div style={{ position: "relative" }}>
-                  <label style={{ display: "block", fontSize: "11px", fontWeight: "bold", marginBottom: "4px", color: "var(--ink-soft)" }}>Kết thúc:</label>
-                  <input
-                    type="text"
-                    value={typedEnd}
-                    placeholder="00:00"
-                    disabled={!currentStart}
-                    className="time-picker-input"
-                    onFocus={() => {
-                      setEndOpen(true);
-                      setStartOpen(false);
-                    }}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      setTypedEnd(val);
-                      let checkVal = val.trim();
-                      if (/^[0-9]:[0-5][0-9]$/.test(checkVal)) checkVal = "0" + checkVal;
-                      if (/^([0-1][0-9]|2[0-3]):[0-5][0-9]$|^24:00$/.test(checkVal)) {
-                        setTempDayTimes((prev) => ({
-                          ...prev,
-                          [activeModalDay]: {
-                            ...prev[activeModalDay],
-                            endTime: checkVal
-                          }
-                        }));
-                      }
-                    }}
-                  />
-
-                  {endOpen && (
-                    <>
-                      <div
-                        style={{ position: "fixed", inset: 0, zIndex: 999 }}
-                        onClick={() => setEndOpen(false)}
-                      />
-                      <div
-                        style={{
-                          position: "absolute",
-                          top: "100%",
-                          left: 0,
-                          right: 0,
-                          zIndex: 1000,
-                          background: "var(--paper)",
-                          border: "1px solid var(--line-strong)",
-                          borderRadius: "8px",
-                          boxShadow: "var(--shadow)",
-                          maxHeight: "180px",
-                          overflowY: "auto",
-                          marginTop: "4px",
-                          padding: "4px 0"
-                        }}
-                      >
-                        {endOptions.map((opt) => (
-                          <div
-                            key={opt.value}
-                            style={{
-                              padding: "8px 12px",
-                              fontSize: "13px",
-                              color: "var(--ink)",
-                              cursor: "pointer",
-                              backgroundColor: opt.value === currentEnd ? "var(--accent-soft)" : "transparent"
-                            }}
-                            onClick={() => {
-                              setTempDayTimes((prev) => ({
-                                ...prev,
-                                [activeModalDay]: {
-                                  ...prev[activeModalDay],
-                                  endTime: opt.value
-                                }
-                              }));
-                              setTypedEnd(opt.value);
-                              setEndOpen(false);
-                            }}
-                            className="time-option-hover"
-                          >
-                            {opt.label}
-                          </div>
-                        ))}
-                      </div>
-                    </>
-                  )}
-                </div>
-              </div>
-
-              {((typedStart && typedEnd) || (currentStart && currentEnd)) && (
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 10px", background: "var(--accent-soft)", borderRadius: "6px", fontSize: "11px" }}>
-                  <span style={{ color: "var(--accent)", fontWeight: 600 }}>
-                    {(() => {
-                      let startFormat = typedStart.trim();
-                      let endFormat = typedEnd.trim();
-                      if (/^[0-9]:[0-5][0-9]$/.test(startFormat)) startFormat = "0" + startFormat;
-                      if (/^[0-9]:[0-5][0-9]$/.test(endFormat)) endFormat = "0" + endFormat;
-                      const duration = getDurationText(startFormat, endFormat);
-                      if (duration) {
-                        return `${startFormat} - ${endFormat} (${duration})`;
-                      }
-                      return "—";
-                    })()}
-                  </span>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                <span style={{ fontSize: "11px", fontWeight: "bold", color: "var(--ink-soft)" }}>Chọn ngày gán giờ:</span>
+                <div style={{ display: "flex", gap: "10px" }}>
                   <button
                     type="button"
                     style={{
@@ -4696,54 +4443,397 @@ function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps
                       background: "transparent",
                       color: "var(--accent)",
                       cursor: "pointer",
-                      textDecoration: "underline",
-                      fontFamily: "inherit",
                       fontSize: "11px",
-                      fontWeight: 500
+                      fontFamily: "inherit",
+                      padding: 0,
+                      textDecoration: "underline"
                     }}
                     onClick={() => {
-                      setTempDayTimes((prev) => {
-                        const copy = { ...prev };
-                        delete copy[activeModalDay];
-                        return copy;
-                      });
-                      setTypedStart("");
-                      setTypedEnd("");
-                      setStartOpen(false);
-                      setEndOpen(false);
+                      setModalSelectedDays([...dayKeys]);
+                      if (dayKeys.length > 0) {
+                        const dayTime = tempDayTimes[activeModalDay] || {};
+                        setTypedStart(dayTime.startTime ?? "");
+                        setTypedEnd(dayTime.endTime ?? "");
+                      }
                     }}
                   >
-                    Xóa giờ ngày này
+                    Chọn toàn bộ
+                  </button>
+                  <button
+                    type="button"
+                    style={{
+                      border: "none",
+                      background: "transparent",
+                      color: "var(--ink-faint)",
+                      cursor: "pointer",
+                      fontSize: "11px",
+                      fontFamily: "inherit",
+                      padding: 0,
+                      textDecoration: "underline"
+                    }}
+                    onClick={() => {
+                      setModalSelectedDays([]);
+                      setTypedStart("");
+                      setTypedEnd("");
+                    }}
+                  >
+                    Bỏ chọn toàn bộ
                   </button>
                 </div>
-              )}
-            </div>
-
-            {timeError && (
-              <div style={{ color: "var(--red, #ef4444)", fontSize: "12px", marginBottom: "15px", lineHeight: "1.4" }}>
-                {timeError}
               </div>
-            )}
 
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px" }}>
-              <button
-                type="button"
-                className="secondary-button"
-                onClick={() => setShowTimeModal(false)}
-              >
-                Hủy
-              </button>
-              <button
-                type="button"
-                className="primary-button"
-                onClick={handleTimeConfirm}
-              >
-                Xác nhận
-              </button>
+              <div className="time-picker-day-grid">
+                {dayKeys.map((day) => {
+                  const isSelected = modalSelectedDays.includes(day);
+                  const isActive = activeModalDay === day;
+                  const dt = tempDayTimes[day];
+                  const hasTime = !!dt?.startTime && !!dt?.endTime;
+                  
+                  return (
+                    <div
+                      key={day}
+                      className={`time-picker-day-btn-wrapper${isActive ? " active" : ""}${isSelected && !isActive ? " selected" : ""}`}
+                    >
+                      <button
+                        key={day}
+                        type="button"
+                        className={`time-picker-day-btn${isActive ? " active" : ""}${isSelected && !isActive ? " selected" : ""}`}
+                        onClick={() => {
+                          let nextSelected = [...modalSelectedDays];
+                          if (isSelected) {
+                            nextSelected = nextSelected.filter(d => d !== day);
+                          } else {
+                            nextSelected.push(day);
+                          }
+                          setModalSelectedDays(nextSelected);
+                          setActiveModalDay(day);
+                          
+                          const dayTime = tempDayTimes[day] || {};
+                          setTypedStart(dayTime.startTime ?? "");
+                          setTypedEnd(dayTime.endTime ?? "");
+                          setStartOpen(false);
+                          setEndOpen(false);
+                        }}
+                      >
+                        {dayLabels[day]}
+                      </button>
+                      
+                      <div className="time-picker-day-time-label">
+                        {hasTime ? (
+                          <>
+                            <div>{dt.startTime}</div>
+                            <div style={{ fontSize: "7px", opacity: 0.6, margin: "-2px 0" }}>-</div>
+                            <div>{dt.endTime}</div>
+                          </>
+                        ) : (
+                          <span style={{ opacity: 0.25 }}>—</span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div style={{ borderTop: "1px solid var(--line)", margin: "8px 0 14px 0" }} />
+
+              <div style={{ display: "grid", gap: "12px", marginBottom: "20px" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  {isNoDaySelected ? (
+                    <span style={{ fontSize: "12px", fontWeight: 600, color: "var(--accent)" }}>
+                      ⚠️ Vui lòng chọn ít nhất một thứ ở trên
+                    </span>
+                  ) : (
+                    <>
+                      <span style={{ fontSize: "12px", fontWeight: 600, color: "var(--ink)" }}>
+                        Sửa giờ cho {modalSelectedDays.length} ngày đã chọn: <span style={{ color: "var(--accent)" }}>{dayLabels[activeModalDay]}</span>
+                      </span>
+                      {!draft.days.includes(activeModalDay) && (
+                        <span style={{ fontSize: "10px", color: "var(--accent)", background: "var(--accent-soft)", padding: "2px 6px", borderRadius: "4px" }}>
+                          Tự động gán
+                        </span>
+                      )}
+                    </>
+                  )}
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 14px 1fr", gap: "8px", alignItems: "end", position: "relative" }}>
+                  <div style={{ position: "relative" }}>
+                    <label style={{ display: "block", fontSize: "11px", fontWeight: "bold", marginBottom: "4px", color: "var(--ink-soft)" }}>Bắt đầu:</label>
+                    <input
+                      type="text"
+                      value={typedStart}
+                      placeholder={isNoDaySelected ? "--:--" : "00:00"}
+                      disabled={isNoDaySelected}
+                      className="time-picker-input"
+                      onFocus={() => {
+                        setStartOpen(true);
+                        setEndOpen(false);
+                      }}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setTypedStart(val);
+                        let checkVal = val.trim();
+                        if (/^[0-9]:[0-5][0-9]$/.test(checkVal)) checkVal = "0" + checkVal;
+                        if (/^([0-1][0-9]|2[0-3]):[0-5][0-9]$|^24:00$/.test(checkVal)) {
+                          setTempDayTimes((prev) => {
+                            const next = { ...prev };
+                            modalSelectedDays.forEach(d => {
+                              next[d] = {
+                                ...next[d],
+                                startTime: checkVal
+                              };
+                            });
+                            return next;
+                          });
+                        }
+                      }}
+                    />
+                    
+                    {startOpen && !isNoDaySelected && (
+                      <>
+                        <div
+                          style={{ position: "fixed", inset: 0, zIndex: 999 }}
+                          onClick={() => setStartOpen(false)}
+                        />
+                        <div
+                          style={{
+                            position: "absolute",
+                            top: "100%",
+                            left: 0,
+                            right: 0,
+                            zIndex: 1000,
+                            background: "var(--paper)",
+                            border: "1px solid var(--line-strong)",
+                            borderRadius: "8px",
+                            boxShadow: "var(--shadow)",
+                            maxHeight: "180px",
+                            overflowY: "auto",
+                            marginTop: "4px",
+                            padding: "4px 0"
+                          }}
+                        >
+                          {startOptions.map((opt) => (
+                            <div
+                              key={opt}
+                              style={{
+                                padding: "8px 12px",
+                                fontSize: "13px",
+                                color: "var(--ink)",
+                                cursor: "pointer",
+                                backgroundColor: opt === currentStart ? "var(--accent-soft)" : "transparent"
+                              }}
+                              onClick={() => {
+                                let nextEnd = currentEnd;
+                                if (currentEnd) {
+                                  const [sh, sm] = opt.split(":").map(Number);
+                                  const [eh, em] = currentEnd.split(":").map(Number);
+                                  if (eh * 60 + em <= sh * 60 + sm) {
+                                    const endMin = (sh * 60 + sm + 60) % 1440;
+                                    const ehNew = Math.floor(endMin / 60);
+                                    const emNew = endMin % 60;
+                                    nextEnd = `${ehNew.toString().padStart(2, '0')}:${emNew.toString().padStart(2, '0')}`;
+                                  }
+                                } else {
+                                  const [sh, sm] = opt.split(":").map(Number);
+                                  const endMin = sh * 60 + sm + 60;
+                                  if (endMin <= 1440) {
+                                    const ehNew = Math.floor(endMin / 60);
+                                    const emNew = endMin % 60;
+                                    nextEnd = ehNew === 24 && emNew === 0 ? "24:00" : `${ehNew.toString().padStart(2, '0')}:${emNew.toString().padStart(2, '0')}`;
+                                  }
+                                }
+                                
+                                setTempDayTimes((prev) => {
+                                  const next = { ...prev };
+                                  modalSelectedDays.forEach(d => {
+                                    next[d] = {
+                                      startTime: opt,
+                                      endTime: nextEnd
+                                    };
+                                  });
+                                  return next;
+                                });
+                                setTypedStart(opt);
+                                if (nextEnd) setTypedEnd(nextEnd);
+                                setStartOpen(false);
+                              }}
+                              className="time-option-hover"
+                            >
+                              {opt}
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: "38px", color: "var(--ink-soft)", fontSize: "16px", fontWeight: 500 }}>
+                    –
+                  </div>
+
+                  <div style={{ position: "relative" }}>
+                    <label style={{ display: "block", fontSize: "11px", fontWeight: "bold", marginBottom: "4px", color: "var(--ink-soft)" }}>Kết thúc:</label>
+                    <input
+                      type="text"
+                      value={typedEnd}
+                      placeholder={isNoDaySelected ? "--:--" : "00:00"}
+                      disabled={isNoDaySelected || !currentStart}
+                      className="time-picker-input"
+                      onFocus={() => {
+                        setEndOpen(true);
+                        setStartOpen(false);
+                      }}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setTypedEnd(val);
+                        let checkVal = val.trim();
+                        if (/^[0-9]:[0-5][0-9]$/.test(checkVal)) checkVal = "0" + checkVal;
+                        if (/^([0-1][0-9]|2[0-3]):[0-5][0-9]$|^24:00$/.test(checkVal)) {
+                          setTempDayTimes((prev) => {
+                            const next = { ...prev };
+                            modalSelectedDays.forEach(d => {
+                              next[d] = {
+                                ...next[d],
+                                endTime: checkVal
+                              };
+                            });
+                            return next;
+                          });
+                        }
+                      }}
+                    />
+
+                    {endOpen && !isNoDaySelected && (
+                      <>
+                        <div
+                          style={{ position: "fixed", inset: 0, zIndex: 999 }}
+                          onClick={() => setEndOpen(false)}
+                        />
+                        <div
+                          style={{
+                            position: "absolute",
+                            top: "100%",
+                            left: 0,
+                            right: 0,
+                            zIndex: 1000,
+                            background: "var(--paper)",
+                            border: "1px solid var(--line-strong)",
+                            borderRadius: "8px",
+                            boxShadow: "var(--shadow)",
+                            maxHeight: "180px",
+                            overflowY: "auto",
+                            marginTop: "4px",
+                            padding: "4px 0"
+                          }}
+                        >
+                          {endOptions.map((opt) => (
+                            <div
+                              key={opt.value}
+                              style={{
+                                padding: "8px 12px",
+                                fontSize: "13px",
+                                color: "var(--ink)",
+                                cursor: "pointer",
+                                backgroundColor: opt.value === currentEnd ? "var(--accent-soft)" : "transparent"
+                              }}
+                              onClick={() => {
+                                setTempDayTimes((prev) => {
+                                  const next = { ...prev };
+                                  modalSelectedDays.forEach(d => {
+                                    next[d] = {
+                                      ...next[d],
+                                      endTime: opt.value
+                                    };
+                                  });
+                                  return next;
+                                });
+                                setTypedEnd(opt.value);
+                                setEndOpen(false);
+                              }}
+                              className="time-option-hover"
+                            >
+                              {opt.label}
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {((typedStart && typedEnd) || (currentStart && currentEnd)) && !isNoDaySelected && (
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 10px", background: "var(--accent-soft)", borderRadius: "6px", fontSize: "11px" }}>
+                    <span style={{ color: "var(--accent)", fontWeight: 600 }}>
+                      {(() => {
+                        let startFormat = typedStart.trim();
+                        let endFormat = typedEnd.trim();
+                        if (/^[0-9]:[0-5][0-9]$/.test(startFormat)) startFormat = "0" + startFormat;
+                        if (/^[0-9]:[0-5][0-9]$/.test(endFormat)) endFormat = "0" + endFormat;
+                        const duration = getDurationText(startFormat, endFormat);
+                        if (duration) {
+                          return `${startFormat} - ${endFormat} (${duration})`;
+                        }
+                        return "—";
+                      })()}
+                    </span>
+                    <button
+                      type="button"
+                      style={{
+                        border: "none",
+                        background: "transparent",
+                        color: "var(--accent)",
+                        cursor: "pointer",
+                        textDecoration: "underline",
+                        fontFamily: "inherit",
+                        fontSize: "11px",
+                        fontWeight: 500
+                      }}
+                      onClick={() => {
+                        setTempDayTimes((prev) => {
+                          const copy = { ...prev };
+                          modalSelectedDays.forEach(d => {
+                            delete copy[d];
+                          });
+                          return copy;
+                        });
+                        setTypedStart("");
+                        setTypedEnd("");
+                        setStartOpen(false);
+                        setEndOpen(false);
+                      }}
+                    >
+                      Xóa giờ các ngày đã chọn
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {timeError && (
+                <div style={{ color: "var(--red, #ef4444)", fontSize: "12px", marginBottom: "15px", lineHeight: "1.4" }}>
+                  {timeError}
+                </div>
+              )}
+
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px" }}>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => setShowTimeModal(false)}
+                >
+                  Hủy
+                </button>
+                <button
+                  type="button"
+                  className="primary-button"
+                  onClick={handleTimeConfirm}
+                >
+                  Xác nhận
+                </button>
+              </div>
             </div>
-          </div>
-        </Modal>
-      )}
+          </Modal>
+        );
+      })()}
     </Modal>
   );
 }
