@@ -621,6 +621,11 @@ function App() {
     }
   }, []);
 
+  // Sync data to Chrome Extension
+  useEffect(() => {
+    window.postMessage({ type: "SYNC_PLANNER_DATA", data: planner }, "*");
+  }, [planner]);
+
   const handleDeleteAccount = async () => {
     if (!user) return;
     

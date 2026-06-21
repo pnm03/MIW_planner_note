@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body {
+      width: 280px;
+      padding: 16px;
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: #faf9f6;
+      color: #1c1c1e;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid #e5e5ea;
+    }
+    .logo {
+      width: 24px;
+      height: 24px;
+    }
+    .title {
+      font-size: 14px;
+      font-weight: 800;
+      color: #ff5722;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .status-card {
+      background: #ffffff;
+      border: 1px solid #e5e5ea;
+      border-radius: 8px;
+      padding: 10px 12px;
+      margin-bottom: 12px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    }
+    .status-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 12px;
+    }
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #8e8e93;
+      display: inline-block;
+    }
+    .status-dot.active {
+      background: #34c759;
+    }
+    .status-text {
+      font-weight: 600;
+      color: #3a3a3c;
+    }
+    .sync-time {
+      font-size: 10px;
+      color: #8e8e93;
+      margin-top: 4px;
+    }
+    .task-section-title {
+      font-size: 11px;
+      font-weight: 700;
+      color: #8e8e93;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin: 10px 0 6px 0;
+    }
+    .task-list {
+      max-height: 140px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-bottom: 14px;
+    }
+    .task-item {
+      background: #ffffff;
+      border: 1px solid #e5e5ea;
+      border-radius: 6px;
+      padding: 6px 10px;
+      font-size: 11px;
+    }
+    .task-item-title {
+      font-weight: 600;
+      color: #1c1c1e;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .task-item-time {
+      font-size: 10px;
+      color: #8e8e93;
+      margin-top: 2px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .empty-state {
+      font-size: 11px;
+      color: #8e8e93;
+      text-align: center;
+      padding: 16px 0;
+      font-style: italic;
+    }
+    .btn-link {
+      display: block;
+      width: 100%;
+      box-sizing: border-box;
+      background: #ff5722;
+      color: white;
+      text-align: center;
+      border: none;
+      padding: 8px;
+      border-radius: 6px;
+      font-weight: 700;
+      font-size: 12px;
+      cursor: pointer;
+      text-decoration: none;
+      box-shadow: 0 2px 6px rgba(255, 87, 34, 0.2);
+      transition: background 0.2s;
+    }
+    .btn-link:hover {
+      background: #f4511e;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <img class="logo" src="icon.png" alt="logo">
+    <div class="title">MIW Planner</div>
+  </div>
+
+  <div class="status-card">
+    <div class="status-row">
+      <span>Kết nối ứng dụng:</span>
+      <div style="display: flex; align-items: center; gap: 6px;">
+        <span class="status-dot" id="sync-dot"></span>
+        <span class="status-text" id="sync-status">Chưa đồng bộ</span>
+      </div>
+    </div>
+    <div class="sync-time" id="sync-time">Vui lòng mở trang web MIW Planner để đồng bộ dữ liệu.</div>
+  </div>
+
+  <div class="task-section-title">Nhắc nhở hôm nay</div>
+  <div class="task-list" id="task-list">
+    <div class="empty-state">Đang tải danh sách...</div>
+  </div>
+
+  <button class="btn-link" id="btn-open-planner">Mở MIW Planner</button>
+
+  <script src="popup.js"></script>
+</body>
+</html>

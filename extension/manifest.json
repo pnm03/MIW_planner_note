@@ -1,0 +1,36 @@
+{
+  "manifest_version": 3,
+  "name": "MIW Planner Reminder",
+  "version": "1.0.0",
+  "description": "Tiện ích mở rộng nhận thông báo nhắc nhở công việc và hiển thị popup đè lên tất cả trang web từ MIW Planner.",
+  "permissions": [
+    "storage",
+    "alarms",
+    "notifications",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_end"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": "icon.png"
+  },
+  "icons": {
+    "128": "icon.png"
+  }
+}
