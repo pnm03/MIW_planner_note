@@ -56,6 +56,8 @@ export interface Task {
   days: DayKey[];
   deadline: string;
   deadlineTime?: string;
+  startTime?: string;
+  endTime?: string;
   reminderEnabled?: boolean;
   description: string;
   subtasks: Subtask[];

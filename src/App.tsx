@@ -1177,6 +1177,7 @@ function App() {
           key={editorTask.id}
           project={editorProject}
           task={editorTask}
+          planner={planner}
           onClose={() => setEditingTask(null)}
           onSave={(task) => {
             const nextCompletedDates = (task.completedDates ?? []).filter((d) => {
@@ -2610,7 +2611,17 @@ function WeekPane({
                 const isCompleted = task.days.length > 0
                   ? (task.completedDates ?? []).includes(dayDateStr)
                   : task.completed;
-                return !isCompleted && currentWeek && dayIndex < todayIndex;
+                if (isCompleted) return false;
+                if (currentWeek && dayIndex < todayIndex) return true;
+
+                if (currentWeek && day === todayKey && task.endTime) {
+                  const [endH, endM] = task.endTime.split(":").map(Number);
+                  const now = new Date();
+                  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+                  const endMinutes = endH * 60 + endM;
+                  return currentMinutes > endMinutes;
+                }
+                return false;
               }).length;
               const allDone =
                 dayTasks.length > 0 &&
@@ -3675,7 +3686,19 @@ function DayColumn({
             const isCompleted = task.days.length > 0
               ? (task.completedDates ?? []).includes(dayDateStr)
               : task.completed;
-            const missed = missedDay && !isCompleted;
+            
+            const isToday = currentWeek && day === todayKey;
+            let isOverdueToday = false;
+            if (isToday && !isCompleted && task.endTime) {
+              const [endH, endM] = task.endTime.split(":").map(Number);
+              const now = new Date();
+              const currentMinutes = now.getHours() * 60 + now.getMinutes();
+              const endMinutes = endH * 60 + endM;
+              if (currentMinutes > endMinutes) {
+                isOverdueToday = true;
+              }
+            }
+            const missed = (missedDay || isOverdueToday) && !isCompleted;
             return (
               <article
                 className={`day-task-card ${isCompleted ? "is-complete" : ""}`}
@@ -3723,8 +3746,15 @@ function DayColumn({
                   {(task.description ||
                     task.deadline ||
                     task.subtasks.length > 0 ||
+                    (task.startTime && task.endTime) ||
                     missed) && (
                     <small>
+                      {task.startTime && task.endTime && (
+                        <b className="time-badge" style={{ display: "inline-flex", alignItems: "center", gap: "3px", color: "var(--accent)", marginRight: "6px" }}>
+                          <Clock3 size={10} />
+                          {task.startTime} - {task.endTime}
+                        </b>
+                      )}
                       {task.description && <em>{task.description}</em>}
                       {task.subtasks.length > 0 && (
                         <>
@@ -3774,12 +3804,75 @@ function DayColumn({
 interface TaskEditorProps {
   project: Project;
   task: Task;
+  planner: PlannerState;
   onClose: () => void;
   onSave: (task: Task) => void;
 }
 
-function TaskEditor({ project, task, onClose, onSave }: TaskEditorProps) {
+function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps) {
   const [draft, setDraft] = useState<Task>(() => clone(task));
+  const [showTimeModal, setShowTimeModal] = useState(false);
+  const [tempStartTime, setTempStartTime] = useState(task.startTime ?? "");
+  const [tempEndTime, setTempEndTime] = useState(task.endTime ?? "");
+  const [timeError, setTimeError] = useState("");
+
+  const handleTimeConfirm = () => {
+    if (!tempStartTime || !tempEndTime) {
+      setTimeError("Vui lòng nhập đầy đủ giờ bắt đầu và kết thúc.");
+      return;
+    }
+    const [startH, startM] = tempStartTime.split(":").map(Number);
+    const [endH, endM] = tempEndTime.split(":").map(Number);
+    const startMin = startH * 60 + startM;
+    const endMin = endH * 60 + endM;
+
+    if (endMin <= startMin) {
+      setTimeError("Giờ kết thúc phải sau giờ bắt đầu.");
+      return;
+    }
+
+    setTimeError("");
+
+    let conflictTaskName = "";
+    let conflictProjectName = "";
+
+    for (const proj of planner.projects) {
+      for (const t of proj.tasks) {
+        if (t.id === draft.id) continue;
+        
+        const hasCommonDay = t.days.some((d) => draft.days.includes(d));
+        if (hasCommonDay && t.startTime && t.endTime) {
+          const [oStartH, oStartM] = t.startTime.split(":").map(Number);
+          const [oEndH, oEndM] = t.endTime.split(":").map(Number);
+          const oStart = oStartH * 60 + oStartM;
+          const oEnd = oEndH * 60 + oEndM;
+
+          if (startMin < oEnd && oStart < endMin) {
+            conflictTaskName = t.title;
+            conflictProjectName = proj.title;
+            break;
+          }
+        }
+      }
+      if (conflictTaskName) break;
+    }
+
+    if (conflictTaskName) {
+      const proceed = window.confirm(
+        `Thời gian này đang trùng với lịch của công việc "${conflictTaskName}" trong dự án "${conflictProjectName}". Bạn có muốn tiếp tục ghi không?`
+      );
+      if (!proceed) {
+        return;
+      }
+    }
+
+    setDraft((current) => ({
+      ...current,
+      startTime: tempStartTime,
+      endTime: tempEndTime,
+    }));
+    setShowTimeModal(false);
+  };
 
   const toggleDay = (day: DayKey) => {
     setDraft((current) => ({
@@ -3939,6 +4032,54 @@ function TaskEditor({ project, task, onClose, onSave }: TaskEditorProps) {
                   .join(", ")}.`
               : "Chưa xếp lịch — sẽ chưa hiện trong tuần."}
           </small>
+          
+          {draft.days.length > 0 && (
+            <div className="time-range-section" style={{ marginTop: "10px", padding: "10px", border: "1px solid var(--line)", borderRadius: "8px", background: "color-mix(in srgb, var(--paper) 50%, var(--bg))" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px" }}>
+                <span style={{ fontSize: "12px", color: "var(--ink-soft)", display: "inline-flex", alignItems: "center", gap: "5px" }}>
+                  <Clock3 size={13} style={{ color: "var(--ink-faint)" }} />
+                  Giờ thực hiện:{" "}
+                  <strong>
+                    {draft.startTime && draft.endTime
+                      ? `${draft.startTime} - ${draft.endTime}`
+                      : "Chưa đặt"}
+                  </strong>
+                </span>
+                <div style={{ display: "flex", gap: "8px" }}>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    style={{ padding: "3px 8px", fontSize: "9px", minHeight: "auto", fontFamily: "inherit" }}
+                    onClick={() => {
+                      setTempStartTime(draft.startTime ?? "");
+                      setTempEndTime(draft.endTime ?? "");
+                      setTimeError("");
+                      setShowTimeModal(true);
+                    }}
+                  >
+                    {draft.startTime && draft.endTime ? "Sửa giờ" : "Đặt giờ"}
+                  </button>
+                  {draft.startTime && draft.endTime && (
+                    <button
+                      type="button"
+                      style={{ padding: "3px 8px", fontSize: "9px", minHeight: "auto", border: "1px solid color-mix(in srgb, var(--red, #ef4444) 30%, var(--line))", borderRadius: "6px", background: "transparent", color: "var(--red, #ef4444)", cursor: "pointer", fontFamily: "inherit" }}
+                      onClick={() => {
+                        setDraft((current) => ({
+                          ...current,
+                          startTime: undefined,
+                          endTime: undefined,
+                        }));
+                        setTempStartTime("");
+                        setTempEndTime("");
+                      }}
+                    >
+                      Xóa giờ
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         <label className="field-label">
@@ -4046,6 +4187,68 @@ function TaskEditor({ project, task, onClose, onSave }: TaskEditorProps) {
           </button>
         </div>
       </div>
+
+      {showTimeModal && (
+        <Modal onClose={() => setShowTimeModal(false)}>
+          <div className="time-picker-modal" style={{ padding: "20px", maxWidth: "320px" }}>
+            <div className="modal-kicker">Cấu hình thời gian</div>
+            <button className="modal-close" onClick={() => setShowTimeModal(false)} aria-label="Đóng">
+              <X size={18} />
+            </button>
+            <h3 style={{ marginTop: "15px", fontSize: "16px", color: "var(--ink)" }}>Đặt giờ thực hiện</h3>
+            <p style={{ margin: "5px 0 15px 0", fontSize: "12px", color: "var(--ink-faint)", lineHeight: "1.4" }}>
+              Chọn khoảng thời gian bắt đầu và kết thúc (chỉ giờ và phút) để theo dõi và đồng bộ lịch.
+            </p>
+
+            <div style={{ display: "grid", gap: "12px", marginBottom: "20px" }}>
+              <div>
+                <label style={{ display: "block", fontSize: "11px", fontWeight: "bold", marginBottom: "4px", color: "var(--ink)" }}>Giờ bắt đầu:</label>
+                <input
+                  type="time"
+                  required
+                  value={tempStartTime}
+                  onChange={(e) => setTempStartTime(e.target.value)}
+                  style={{ width: "100%", padding: "8px", border: "1px solid var(--line-strong)", borderRadius: "6px", backgroundColor: "var(--paper)", color: "var(--ink)", fontFamily: "inherit" }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: "block", fontSize: "11px", fontWeight: "bold", marginBottom: "4px", color: "var(--ink)" }}>Giờ kết thúc:</label>
+                <input
+                  type="time"
+                  required
+                  value={tempEndTime}
+                  onChange={(e) => setTempEndTime(e.target.value)}
+                  style={{ width: "100%", padding: "8px", border: "1px solid var(--line-strong)", borderRadius: "6px", backgroundColor: "var(--paper)", color: "var(--ink)", fontFamily: "inherit" }}
+                />
+              </div>
+            </div>
+
+            {timeError && (
+              <div style={{ color: "var(--red, #ef4444)", fontSize: "12px", marginBottom: "15px", lineHeight: "1.4" }}>
+                {timeError}
+              </div>
+            )}
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px" }}>
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => setShowTimeModal(false)}
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                className="primary-button"
+                onClick={handleTimeConfirm}
+              >
+                Xác nhận
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </Modal>
   );
 }
