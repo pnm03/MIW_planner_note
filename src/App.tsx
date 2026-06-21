@@ -530,6 +530,30 @@ function App() {
   }
   const [deadlineExtensionModal, setDeadlineExtensionModal] = useState<DeadlineExtensionModalData | null>(null);
   const notifiedTasks = useRef(new Map<string, string>());
+  
+  const [activeReminder, setActiveReminder] = useState<{
+    task: Task;
+    projectTitle: string;
+    dayKey: DayKey;
+    startTime: string;
+    remainingMin: number;
+  } | null>(null);
+
+  const notifiedReminderKeys = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("notified_reminder_keys");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          notifiedReminderKeys.current = new Set(parsed);
+        }
+      }
+    } catch (e) {
+      console.warn("Lỗi khi load notified_reminder_keys:", e);
+    }
+  }, []);
 
   const handleDeleteAccount = async () => {
     if (!user) return;
@@ -685,32 +709,177 @@ function App() {
   }, [toast]);
 
   useEffect(() => {
+    if ("Notification" in window && Notification.permission === "default") {
+      Notification.requestPermission();
+    }
+  }, []);
+
+  useEffect(() => {
     const checkReminders = () => {
       const now = new Date();
+      const currentWeekDays = getWeekDates(0);
+
+      // 1. Check projects and tasks
       planner.projects.forEach((project) => {
         project.tasks.forEach((task) => {
-          if (
-            task.completed ||
-            !task.reminderEnabled ||
-            !task.deadline ||
-            !task.deadlineTime ||
-            notifiedTasks.current.get(task.id) ===
-              `${task.deadline}T${task.deadlineTime}`
-          ) {
+          if (task.completed || !task.reminderEnabled) {
             return;
           }
-          const dueAt = new Date(`${task.deadline}T${task.deadlineTime}:00`);
-          const diff = now.getTime() - dueAt.getTime();
-          if (diff >= 0 && diff < 60_000) {
-            notifiedTasks.current.set(
-              task.id,
-              `${task.deadline}T${task.deadlineTime}`,
-            );
-            playReminderSound();
-            setToast(`Đến giờ: ${task.title || "Công việc chưa đặt tên"}`);
+
+          // Legacy deadline-based check
+          if (task.deadline && task.deadlineTime) {
+            const notifiedKey = notifiedTasks.current.get(task.id);
+            const currentDeadlineKey = `${task.deadline}T${task.deadlineTime}`;
+            if (notifiedKey !== currentDeadlineKey) {
+              const dueAt = new Date(`${task.deadline}T${task.deadlineTime}:00`);
+              const diff = now.getTime() - dueAt.getTime();
+              if (diff >= 0 && diff < 60_000) {
+                notifiedTasks.current.set(task.id, currentDeadlineKey);
+                playReminderSound();
+                setToast(`Đến giờ: ${task.title || "Công việc chưa đặt tên"}`);
+                
+                if (Notification.permission === "granted") {
+                  const notification = new Notification(`Nhắc nhở hạn chót: ${task.title || "Công việc chưa đặt tên"}`, {
+                    body: `Dự án: ${project.title}\nHạn chót lúc ${task.deadlineTime} ngày ${task.deadline}`,
+                    icon: "/favicon.jpg"
+                  });
+                  notification.onclick = () => {
+                    window.focus();
+                  };
+                }
+                
+                setActiveReminder({
+                  task,
+                  projectTitle: project.title,
+                  dayKey: getTodayKey(),
+                  startTime: task.deadlineTime || "",
+                  remainingMin: 0
+                });
+              }
+            }
+          }
+
+          // Day-based schedule reminder check
+          if (task.days && task.days.length > 0) {
+            task.days.forEach((day) => {
+              const matchingDate = currentWeekDays.find(d => d.key === day);
+              if (!matchingDate) return;
+
+              const dayTime = task.dayTimes?.[day] || (task.startTime && task.endTime ? { startTime: task.startTime, endTime: task.endTime } : null);
+              if (!dayTime || !dayTime.startTime) return;
+
+              const dateStr = toIsoDate(matchingDate.date);
+              const scheduledStartStr = `${dateStr}T${dayTime.startTime}:00`;
+              const startTimeMs = new Date(scheduledStartStr).getTime();
+              if (Number.isNaN(startTimeMs)) return;
+
+              const offsets = task.reminderOffsets && task.reminderOffsets.length > 0 ? task.reminderOffsets : [5];
+              offsets.forEach((offset: number) => {
+                const triggerTimeMs = startTimeMs - offset * 60 * 1000;
+                const diff = now.getTime() - triggerTimeMs;
+
+                if (diff >= 0 && diff < 60_000) {
+                  const reminderKey = `${task.id}-${day}-${offset}-${dateStr}`;
+                  if (!notifiedReminderKeys.current.has(reminderKey)) {
+                    notifiedReminderKeys.current.add(reminderKey);
+                    localStorage.setItem("notified_reminder_keys", JSON.stringify(Array.from(notifiedReminderKeys.current)));
+
+                    const remainingMin = Math.round((startTimeMs - now.getTime()) / 60000);
+
+                    playReminderSound();
+
+                    if (Notification.permission === "granted") {
+                      const notification = new Notification(`Nhắc nhở công việc: ${task.title || "Công việc chưa đặt tên"}`, {
+                        body: `Dự án: ${project.title}\nThời gian: ${dayLabels[day]} lúc ${dayTime.startTime}`,
+                        icon: "/favicon.jpg"
+                      });
+                      notification.onclick = () => {
+                        window.focus();
+                      };
+                    }
+
+                    setActiveReminder({
+                      task,
+                      projectTitle: project.title,
+                      dayKey: day,
+                      startTime: dayTime.startTime || "",
+                      remainingMin
+                    });
+                  }
+                }
+              });
+            });
           }
         });
       });
+
+      // 2. Check snoozed reminders
+      try {
+        const snoozesStr = localStorage.getItem("snoozed_reminders") || "[]";
+        const snoozes = JSON.parse(snoozesStr);
+        if (Array.isArray(snoozes) && snoozes.length > 0) {
+          const activeSnoozesToFire: any[] = [];
+          const remainingSnoozes: any[] = [];
+
+          snoozes.forEach((snooze) => {
+            if (now.getTime() >= snooze.triggerTimeMs) {
+              activeSnoozesToFire.push(snooze);
+            } else {
+              remainingSnoozes.push(snooze);
+            }
+          });
+
+          if (activeSnoozesToFire.length > 0) {
+            localStorage.setItem("snoozed_reminders", JSON.stringify(remainingSnoozes));
+
+            activeSnoozesToFire.forEach((snooze) => {
+              let freshTask: Task | undefined;
+              let freshProjectTitle = snooze.projectName;
+
+              for (const proj of planner.projects) {
+                const t = proj.tasks.find(tk => tk.id === snooze.taskId);
+                if (t) {
+                  freshTask = t;
+                  freshProjectTitle = proj.title;
+                  break;
+                }
+              }
+
+              if (freshTask && !freshTask.completed) {
+                const matchingDate = currentWeekDays.find(d => d.key === snooze.dayKey);
+                let remainingMin = 5;
+                if (matchingDate) {
+                  const dateStr = toIsoDate(matchingDate.date);
+                  const startTimeMs = new Date(`${dateStr}T${snooze.startTime}:00`).getTime();
+                  remainingMin = Math.round((startTimeMs - now.getTime()) / 60000);
+                }
+
+                playReminderSound();
+
+                if (Notification.permission === "granted") {
+                  const notification = new Notification(`Báo thức lại: ${freshTask.title || "Công việc chưa đặt tên"}`, {
+                    body: `Dự án: ${freshProjectTitle}\nThời gian: ${dayLabels[snooze.dayKey as DayKey]} lúc ${snooze.startTime}`,
+                    icon: "/favicon.jpg"
+                  });
+                  notification.onclick = () => {
+                    window.focus();
+                  };
+                }
+
+                setActiveReminder({
+                  task: freshTask,
+                  projectTitle: freshProjectTitle,
+                  dayKey: snooze.dayKey,
+                  startTime: snooze.startTime,
+                  remainingMin
+                });
+              }
+            });
+          }
+        }
+      } catch (e) {
+        console.warn("Lỗi khi check snoozed_reminders:", e);
+      }
     };
 
     checkReminders();
@@ -1378,6 +1547,76 @@ function App() {
           onClose={() => setShowEndWeek(false)}
           onEnd={endWeek}
         />
+      )}
+
+      {activeReminder && (
+        <Modal onClose={() => setActiveReminder(null)} narrow>
+          <div style={{ padding: "24px", textAlign: "center" }}>
+            <div style={{ width: "48px", height: "48px", borderRadius: "50%", background: "var(--accent-soft)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px", color: "var(--accent)" }}>
+              <BellRing size={24} />
+            </div>
+            
+            <h3 style={{ margin: "0 0 8px 0", fontSize: "18px", color: "var(--ink)", fontFamily: "Fraunces, serif" }}>
+              Đến giờ nhắc nhở công việc
+            </h3>
+            
+            <div style={{ background: "var(--accent-soft)", padding: "12px 16px", borderRadius: "8px", margin: "16px 0", textAlign: "left" }}>
+              <div style={{ fontSize: "11px", fontWeight: "bold", color: "var(--accent)", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                Dự án: {activeReminder.projectTitle}
+              </div>
+              <div style={{ fontSize: "15px", fontWeight: 600, color: "var(--ink)", marginTop: "4px" }}>
+                {activeReminder.task.title}
+              </div>
+              <div style={{ fontSize: "12px", color: "var(--ink-soft)", marginTop: "6px", display: "flex", alignItems: "center", gap: "4px" }}>
+                <Clock3 size={13} />
+                {(dayLabels as any)[activeReminder.dayKey] || activeReminder.dayKey} lúc {activeReminder.startTime}
+              </div>
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+              <button
+                className="primary-button"
+                style={{ width: "100%" }}
+                onClick={() => {
+                  const snoozeMin = activeReminder.remainingMin < 5 ? 2 : 5;
+                  const now = new Date();
+                  const triggerTimeMs = now.getTime() + snoozeMin * 60 * 1000;
+                  
+                  const newSnooze = {
+                    id: Math.random().toString(36).substring(2, 9),
+                    taskId: activeReminder.task.id,
+                    taskTitle: activeReminder.task.title,
+                    projectName: activeReminder.projectTitle,
+                    dayKey: activeReminder.dayKey,
+                    startTime: activeReminder.startTime,
+                    triggerTimeMs
+                  };
+                  
+                  try {
+                    const existing = JSON.parse(localStorage.getItem("snoozed_reminders") || "[]");
+                    localStorage.setItem("snoozed_reminders", JSON.stringify([...existing, newSnooze]));
+                  } catch (e) {
+                    console.error("Lỗi khi lưu snooze:", e);
+                  }
+                  
+                  setActiveReminder(null);
+                }}
+              >
+                Nhắc lại sau {activeReminder.remainingMin < 5 ? "2" : "5"} phút
+              </button>
+              
+              <button
+                className="secondary-button"
+                style={{ width: "100%" }}
+                onClick={() => {
+                  setActiveReminder(null);
+                }}
+              >
+                Đã hiểu / Tắt nhắc nhở
+              </button>
+            </div>
+          </div>
+        </Modal>
       )}
 
       {showSettings && (
@@ -3813,6 +4052,96 @@ interface TaskEditorProps {
   onSave: (task: Task) => void;
 }
 
+const presetOptions = [
+  { label: "1 phút", value: 1 },
+  { label: "5 phút", value: 5 },
+  { label: "10 phút", value: 10 },
+  { label: "30 phút", value: 30 },
+  { label: "1 giờ", value: 60 },
+  { label: "5 giờ", value: 300 },
+  { label: "10 giờ", value: 600 },
+  { label: "1 ngày", value: 1440 },
+];
+
+const isTaskEqual = (a: Task, b: Task): boolean => {
+  if (a.title !== b.title) return false;
+  if (!!a.titleBold !== !!b.titleBold) return false;
+  if (!!a.titleItalic !== !!b.titleItalic) return false;
+  if ((a.titleColor ?? "") !== (b.titleColor ?? "")) return false;
+  if (!!a.important !== !!b.important) return false;
+  if (!!a.urgent !== !!b.urgent) return false;
+  if ((a.deadline ?? "") !== (b.deadline ?? "")) return false;
+  if ((a.deadlineTime ?? "") !== (b.deadlineTime ?? "")) return false;
+  if ((a.startTime ?? "") !== (b.startTime ?? "")) return false;
+  if ((a.endTime ?? "") !== (b.endTime ?? "")) return false;
+  if (!!a.reminderEnabled !== !!b.reminderEnabled) return false;
+  if ((a.description ?? "") !== (b.description ?? "")) return false;
+  if (!!a.completed !== !!b.completed) return false;
+
+  // Compare days array
+  const daysA = a.days ?? [];
+  const daysB = b.days ?? [];
+  if (daysA.length !== daysB.length) return false;
+  const sortedDaysA = [...daysA].sort();
+  const sortedDaysB = [...daysB].sort();
+  for (let i = 0; i < sortedDaysA.length; i++) {
+    if (sortedDaysA[i] !== sortedDaysB[i]) return false;
+  }
+
+  // Compare reminderOffsets array
+  const offsetsA = a.reminderOffsets ?? [];
+  const offsetsB = b.reminderOffsets ?? [];
+  if (offsetsA.length !== offsetsB.length) return false;
+  const sortedOffsetsA = [...offsetsA].sort((x, y) => x - y);
+  const sortedOffsetsB = [...offsetsB].sort((x, y) => x - y);
+  for (let i = 0; i < sortedOffsetsA.length; i++) {
+    if (sortedOffsetsA[i] !== sortedOffsetsB[i]) return false;
+  }
+
+  // Compare dayTimes object
+  const dtA = a.dayTimes ?? {};
+  const dtB = b.dayTimes ?? {};
+  const keysA = Object.keys(dtA) as DayKey[];
+  const keysB = Object.keys(dtB) as DayKey[];
+  if (keysA.length !== keysB.length) return false;
+  for (const k of keysA) {
+    if (dtA[k]?.startTime !== dtB[k]?.startTime) return false;
+    if (dtA[k]?.endTime !== dtB[k]?.endTime) return false;
+  }
+
+  // Compare subtasks
+  const subA = a.subtasks ?? [];
+  const subB = b.subtasks ?? [];
+  if (subA.length !== subB.length) return false;
+  for (let i = 0; i < subA.length; i++) {
+    if (subA[i].id !== subB[i].id) return false;
+    if (subA[i].title !== subB[i].title) return false;
+    if (subA[i].completed !== subB[i].completed) return false;
+  }
+
+  // Compare completedDays
+  const compDaysA = a.completedDays ?? [];
+  const compDaysB = b.completedDays ?? [];
+  if (compDaysA.length !== compDaysB.length) return false;
+  const sortedCompDaysA = [...compDaysA].sort();
+  const sortedCompDaysB = [...compDaysB].sort();
+  for (let i = 0; i < sortedCompDaysA.length; i++) {
+    if (sortedCompDaysA[i] !== sortedCompDaysB[i]) return false;
+  }
+
+  // Compare completedDates
+  const compDatesA = a.completedDates ?? [];
+  const compDatesB = b.completedDates ?? [];
+  if (compDatesA.length !== compDatesB.length) return false;
+  const sortedCompDatesA = [...compDatesA].sort();
+  const sortedCompDatesB = [...compDatesB].sort();
+  for (let i = 0; i < sortedCompDatesA.length; i++) {
+    if (sortedCompDatesA[i] !== sortedCompDatesB[i]) return false;
+  }
+
+  return true;
+};
+
 function getDurationText(start: string, end: string): string {
   if (!start || !end) return "";
   const [sh, sm] = start.split(":").map(Number);
@@ -3856,6 +4185,12 @@ function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps
   const [timeError, setTimeError] = useState("");
   const [typedStart, setTypedStart] = useState("");
   const [typedEnd, setTypedEnd] = useState("");
+  
+  const [modalReminderEnabled, setModalReminderEnabled] = useState(false);
+  const [modalReminderOffsets, setModalReminderOffsets] = useState<number[]>([]);
+  const [customReminderVal, setCustomReminderVal] = useState("");
+  const [customReminderUnit, setCustomReminderUnit] = useState<"m" | "h">("m");
+  const [showConfirmCloseModal, setShowConfirmCloseModal] = useState(false);
 
   const startOptions = useMemo(() => {
     const options: string[] = [];
@@ -3925,6 +4260,10 @@ function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps
     setTimeError("");
     setStartOpen(false);
     setEndOpen(false);
+    setModalReminderEnabled(draft.reminderEnabled ?? false);
+    setModalReminderOffsets(draft.reminderOffsets ?? []);
+    setCustomReminderVal("");
+    setCustomReminderUnit("m");
     setShowTimeModal(true);
   };
 
@@ -4064,7 +4403,9 @@ function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps
         days: modalSelectedDays,
         dayTimes: cleanedDayTimes,
         startTime: fallbackStart,
-        endTime: fallbackEnd
+        endTime: fallbackEnd,
+        reminderEnabled: modalReminderEnabled,
+        reminderOffsets: modalReminderOffsets
       };
     });
 
@@ -4097,11 +4438,20 @@ function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps
     });
   };
 
+  const handleTryClose = () => {
+    const hasChanges = !isTaskEqual(draft, task);
+    if (hasChanges) {
+      setShowConfirmCloseModal(true);
+    } else {
+      onClose();
+    }
+  };
+
   return (
-    <Modal onClose={onClose}>
+    <Modal onClose={handleTryClose}>
       <div className="task-editor">
         <div className="modal-kicker">Chọn ngày cho công việc</div>
-        <button className="modal-close" onClick={onClose} aria-label="Đóng">
+        <button className="modal-close" onClick={handleTryClose} aria-label="Đóng">
           <X size={18} />
         </button>
         <span className="editor-project-name">
@@ -4392,7 +4742,7 @@ function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps
         </div>
 
         <div className="modal-actions">
-          <button className="secondary-button" onClick={onClose}>
+          <button className="secondary-button" onClick={handleTryClose}>
             Hủy
           </button>
           <button
@@ -4808,6 +5158,175 @@ function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps
                 )}
               </div>
 
+              <div style={{ borderTop: "1px solid var(--line)", margin: "14px 0 10px 0" }} />
+              
+              <div style={{ marginBottom: "16px", opacity: isNoDaySelected ? 0.5 : 1 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" }}>
+                  <label style={{ fontSize: "12px", fontWeight: "bold", color: "var(--ink)", display: "flex", alignItems: "center", gap: "6px", cursor: isNoDaySelected ? "not-allowed" : "pointer" }}>
+                    <input
+                      type="checkbox"
+                      checked={modalReminderEnabled}
+                      disabled={isNoDaySelected}
+                      onChange={(e) => {
+                        setModalReminderEnabled(e.target.checked);
+                        if (e.target.checked && modalReminderOffsets.length === 0) {
+                          setModalReminderOffsets([5]); // Default to 5 minutes
+                        }
+                      }}
+                      style={{ accentColor: "var(--accent)" }}
+                    />
+                    Bật nhắc nhở trước giờ bắt đầu
+                  </label>
+                </div>
+
+                {modalReminderEnabled && !isNoDaySelected && (
+                  <div style={{ display: "grid", gap: "10px", padding: "8px", background: "var(--accent-soft)", borderRadius: "6px" }}>
+                    {/* Custom input for reminder at the top */}
+                    <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+                      <span style={{ fontSize: "11px", color: "var(--ink-soft)" }}>Tùy chỉnh:</span>
+                      <input
+                        type="number"
+                        min="1"
+                        placeholder="Số lượng"
+                        value={customReminderVal}
+                        onChange={(e) => setCustomReminderVal(e.target.value)}
+                        style={{
+                          width: "70px",
+                          padding: "3px 6px",
+                          border: "1px solid var(--line-strong)",
+                          borderRadius: "4px",
+                          fontSize: "11px",
+                          background: "var(--paper)",
+                          color: "var(--ink)"
+                        }}
+                      />
+                      <select
+                        value={customReminderUnit}
+                        onChange={(e) => setCustomReminderUnit(e.target.value as "m" | "h")}
+                        style={{
+                          padding: "3px 6px",
+                          border: "1px solid var(--line-strong)",
+                          borderRadius: "4px",
+                          fontSize: "11px",
+                          background: "var(--paper)",
+                          color: "var(--ink)"
+                        }}
+                      >
+                        <option value="m">Phút</option>
+                        <option value="h">Giờ</option>
+                      </select>
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        style={{ padding: "3px 8px", fontSize: "10px", height: "auto" }}
+                        onClick={() => {
+                          const val = parseInt(customReminderVal, 10);
+                          if (!val || val <= 0) return;
+                          const minutes = customReminderUnit === "h" ? val * 60 : val;
+                          if (minutes > 1440) {
+                            alert("Thời gian nhắc nhở tối đa là 1 ngày (1440 phút)!");
+                            return;
+                          }
+                          if (modalReminderOffsets.includes(minutes)) {
+                            alert("Thời gian nhắc nhở này đã tồn tại!");
+                            return;
+                          }
+                          if (modalReminderOffsets.length >= 3) {
+                            alert("Bạn chỉ được chọn tối đa 3 mốc thời gian nhắc nhở!");
+                            return;
+                          }
+                          setModalReminderOffsets(prev => [...prev, minutes].sort((a, b) => a - b));
+                          setCustomReminderVal("");
+                        }}
+                      >
+                        Thêm
+                      </button>
+                    </div>
+
+                    {/* Checklist of options */}
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "6px" }}>
+                      {presetOptions.map(opt => {
+                        const isChecked = modalReminderOffsets.includes(opt.value);
+                        return (
+                          <label
+                            key={opt.value}
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "4px",
+                              fontSize: "10px",
+                              color: isChecked ? "var(--accent)" : "var(--ink)",
+                              cursor: "pointer",
+                              padding: "4px 6px",
+                              background: isChecked ? "var(--paper)" : "transparent",
+                              border: "1px solid " + (isChecked ? "var(--accent)" : "var(--line)"),
+                              borderRadius: "4px",
+                              transition: "all 0.2s",
+                              userSelect: "none"
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={() => {
+                                if (isChecked) {
+                                  setModalReminderOffsets(prev => prev.filter(v => v !== opt.value));
+                                } else {
+                                  if (modalReminderOffsets.length >= 3) {
+                                    alert("Bạn chỉ được chọn tối đa 3 mốc thời gian nhắc nhở!");
+                                    return;
+                                  }
+                                  setModalReminderOffsets(prev => [...prev, opt.value].sort((a, b) => a - b));
+                                }
+                              }}
+                              style={{ accentColor: "var(--accent)" }}
+                            />
+                            {opt.label}
+                          </label>
+                        );
+                      })}
+                    </div>
+
+                    {/* Selected custom offsets list (showing ones that aren't in presets) */}
+                    {modalReminderOffsets.some(v => !presetOptions.map(p => p.value).includes(v)) && (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: "4px", alignItems: "center" }}>
+                        <span style={{ fontSize: "10px", color: "var(--ink-soft)" }}>Tự chọn:</span>
+                        {modalReminderOffsets
+                          .filter(v => !presetOptions.map(p => p.value).includes(v))
+                          .map(val => (
+                            <span
+                              key={val}
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "3px",
+                                fontSize: "10px",
+                                background: "var(--paper)",
+                                color: "var(--accent)",
+                                padding: "1px 5px",
+                                borderRadius: "4px",
+                                border: "1px solid var(--accent)"
+                              }}
+                            >
+                              {val >= 60 ? `${val / 60} giờ` : `${val} phút`}
+                              <span
+                                style={{ cursor: "pointer", fontWeight: "bold", marginLeft: "2px" }}
+                                onClick={() => setModalReminderOffsets(prev => prev.filter(v => v !== val))}
+                              >
+                                ×
+                              </span>
+                            </span>
+                          ))}
+                      </div>
+                    )}
+
+                    <div style={{ fontSize: "10px", color: "var(--ink-soft)", fontStyle: "italic" }}>
+                      Đã chọn {modalReminderOffsets.length}/3 mốc nhắc nhở (tối đa 1 ngày trước giờ bắt đầu).
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {timeError && (
                 <div style={{ color: "var(--red, #ef4444)", fontSize: "12px", marginBottom: "15px", lineHeight: "1.4" }}>
                   {timeError}
@@ -4834,6 +5353,52 @@ function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps
           </Modal>
         );
       })()}
+
+      {showConfirmCloseModal && (
+        <Modal onClose={() => setShowConfirmCloseModal(false)} narrow>
+          <div style={{ padding: "20px", textAlign: "center" }}>
+            <h4 style={{ margin: "0 0 10px 0", fontSize: "16px", color: "var(--ink)", fontFamily: "Fraunces, serif" }}>
+              Bạn có thay đổi chưa lưu
+            </h4>
+            <p style={{ margin: "0 0 20px 0", fontSize: "13px", color: "var(--ink-soft)" }}>
+              Bạn có muốn lưu các thay đổi này trước khi đóng không?
+            </p>
+            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+              <button
+                className="primary-button"
+                style={{ width: "100%" }}
+                onClick={() => {
+                  setShowConfirmCloseModal(false);
+                  onSave({
+                    ...draft,
+                    title: draft.title.trim() || "Công việc chưa đặt tên",
+                    subtasks: draft.subtasks.filter((item) => item.title.trim()),
+                  });
+                }}
+              >
+                Lưu và đóng
+              </button>
+              <button
+                className="secondary-button"
+                style={{ width: "100%" }}
+                onClick={() => {
+                  setShowConfirmCloseModal(false);
+                  onClose();
+                }}
+              >
+                Không lưu thay đổi (Hủy bỏ)
+              </button>
+              <button
+                className="secondary-button"
+                style={{ width: "100%", border: "none", background: "transparent" }}
+                onClick={() => setShowConfirmCloseModal(false)}
+              >
+                Tiếp tục chỉnh sửa
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </Modal>
   );
 }

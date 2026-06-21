@@ -60,6 +60,7 @@ export interface Task {
   endTime?: string;
   dayTimes?: Partial<Record<DayKey, { startTime?: string; endTime?: string }>>;
   reminderEnabled?: boolean;
+  reminderOffsets?: number[];
   description: string;
   subtasks: Subtask[];
   completedDays?: DayKey[];
