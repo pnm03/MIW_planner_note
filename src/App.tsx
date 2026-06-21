@@ -1976,9 +1976,14 @@ function Header({
 
         {view === "plan" ? (
           <div className="week-navigation-wrap">
-            <div className="planning-for">
-              <CalendarDays size={14} />
-              Kế hoạch
+            <div className="planning-for" style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: "2px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "7px" }}>
+                <CalendarDays size={14} />
+                <span>Kế hoạch</span>
+              </div>
+              <span style={{ fontSize: "8.5px", color: "var(--ink-faint)", textTransform: "none", letterSpacing: "normal", paddingLeft: "21px", fontWeight: "normal", opacity: 0.85 }}>
+                v0.1.1
+              </span>
             </div>
             <div className="week-navigation" aria-label="Chọn tuần kế hoạch">
               <button
@@ -4197,11 +4202,38 @@ interface TaskEditorProps {
   onSave: (task: Task) => void;
 }
 
-/** Formats raw input into HH:MM mask. Only digits allowed, colon auto-inserted. */
-const formatTimeMask = (raw: string): string => {
-  const digits = raw.replace(/[^0-9]/g, "").slice(0, 4);
-  if (digits.length <= 2) return digits;
-  return digits.slice(0, 2) + ":" + digits.slice(2);
+/** Formats raw input into HH:MM on blur. Intelligently parses various formats like 1906, 19 06, 730, 9. */
+const formatTimeOnBlur = (raw: string): string => {
+  const trimmed = raw.trim();
+  if (!trimmed) return "";
+  
+  const digits = trimmed.replace(/[^0-9]/g, "");
+  if (!digits) return "";
+  
+  let h = 0;
+  let m = 0;
+  
+  if (digits.length === 1) {
+    h = parseInt(digits, 10);
+    m = 0;
+  } else if (digits.length === 2) {
+    h = parseInt(digits, 10);
+    m = 0;
+  } else if (digits.length === 3) {
+    h = parseInt(digits.slice(0, 1), 10);
+    m = parseInt(digits.slice(1), 10);
+  } else {
+    h = parseInt(digits.slice(0, 2), 10);
+    m = parseInt(digits.slice(2, 4), 10);
+  }
+  
+  if (h > 24) h = 23;
+  if (h === 24) m = 0;
+  if (m > 59) m = 59;
+  
+  const hh = h.toString().padStart(2, '0');
+  const mm = m.toString().padStart(2, '0');
+  return `${hh}:${mm}`;
 };
 
 const presetOptions = [
@@ -4448,18 +4480,17 @@ function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps
   const handleTimeConfirm = () => {
     const updatedDayTimes = { ...tempDayTimes };
 
-    const cleanStart = typedStart.trim();
-    const cleanEnd = typedEnd.trim();
+    const formattedStart = formatTimeOnBlur(typedStart);
+    const formattedEnd = formatTimeOnBlur(typedEnd);
 
-    if (cleanStart || cleanEnd) {
-      if (!cleanStart || !cleanEnd) {
+    setTypedStart(formattedStart);
+    setTypedEnd(formattedEnd);
+
+    if (formattedStart || formattedEnd) {
+      if (!formattedStart || !formattedEnd) {
         setTimeError(`Vui lòng nhập đầy đủ giờ bắt đầu và kết thúc.`);
         return;
       }
-      let formattedStart = cleanStart;
-      let formattedEnd = cleanEnd;
-      if (/^[0-9]:[0-5][0-9]$/.test(formattedStart)) formattedStart = "0" + formattedStart;
-      if (/^[0-9]:[0-5][0-9]$/.test(formattedEnd)) formattedEnd = "0" + formattedEnd;
 
       const timeRegex = /^([0-1][0-9]|2[0-3]):[0-5][0-9]$|^24:00$/;
       if (!timeRegex.test(formattedStart) || !timeRegex.test(formattedEnd)) {
@@ -5103,28 +5134,28 @@ function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps
                       placeholder="__:__"
                       disabled={isNoDaySelected}
                       className="time-picker-input"
-                      maxLength={5}
+                      maxLength={8}
                       onFocus={() => {
                         setStartOpen(true);
                         setEndOpen(false);
                       }}
                       onChange={(e) => {
-                        const masked = formatTimeMask(e.target.value);
-                        setTypedStart(masked);
-                        let checkVal = masked.trim();
-                        if (/^[0-9]:[0-5][0-9]$/.test(checkVal)) checkVal = "0" + checkVal;
-                        if (/^([0-1][0-9]|2[0-3]):[0-5][0-9]$|^24:00$/.test(checkVal)) {
-                          setTempDayTimes((prev) => {
-                            const next = { ...prev };
-                            modalSelectedDays.forEach(d => {
-                              next[d] = {
-                                ...next[d],
-                                startTime: checkVal
-                              };
-                            });
-                            return next;
+                        const val = e.target.value.replace(/[^0-9\s:.-]/g, "");
+                        setTypedStart(val);
+                      }}
+                      onBlur={() => {
+                        const formatted = formatTimeOnBlur(typedStart);
+                        setTypedStart(formatted);
+                        setTempDayTimes((prev) => {
+                          const next = { ...prev };
+                          modalSelectedDays.forEach(d => {
+                            next[d] = {
+                              ...next[d],
+                              startTime: formatted || undefined
+                            };
                           });
-                        }
+                          return next;
+                        });
                       }}
                     />
                     
@@ -5216,30 +5247,30 @@ function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps
                       type="text"
                       value={typedEnd}
                       placeholder="__:__"
-                      disabled={isNoDaySelected || !currentStart}
+                      disabled={isNoDaySelected || !typedStart.trim()}
                       className="time-picker-input"
-                      maxLength={5}
+                      maxLength={8}
                       onFocus={() => {
                         setEndOpen(true);
                         setStartOpen(false);
                       }}
                       onChange={(e) => {
-                        const masked = formatTimeMask(e.target.value);
-                        setTypedEnd(masked);
-                        let checkVal = masked.trim();
-                        if (/^[0-9]:[0-5][0-9]$/.test(checkVal)) checkVal = "0" + checkVal;
-                        if (/^([0-1][0-9]|2[0-3]):[0-5][0-9]$|^24:00$/.test(checkVal)) {
-                          setTempDayTimes((prev) => {
-                            const next = { ...prev };
-                            modalSelectedDays.forEach(d => {
-                              next[d] = {
-                                ...next[d],
-                                endTime: checkVal
-                              };
-                            });
-                            return next;
+                        const val = e.target.value.replace(/[^0-9\s:.-]/g, "");
+                        setTypedEnd(val);
+                      }}
+                      onBlur={() => {
+                        const formatted = formatTimeOnBlur(typedEnd);
+                        setTypedEnd(formatted);
+                        setTempDayTimes((prev) => {
+                          const next = { ...prev };
+                          modalSelectedDays.forEach(d => {
+                            next[d] = {
+                              ...next[d],
+                              endTime: formatted || undefined
+                            };
                           });
-                        }
+                          return next;
+                        });
                       }}
                     />
 
