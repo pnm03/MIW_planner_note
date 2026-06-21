@@ -62,6 +62,9 @@ export interface Task {
   reminderEnabled?: boolean;
   reminderOffsets?: number[];
   reminderSound?: string;
+  endReminderEnabled?: boolean;
+  endReminderOffsets?: number[];
+  endReminderSound?: string;
   description: string;
   subtasks: Subtask[];
   completedDays?: DayKey[];
@@ -133,6 +136,7 @@ export const createTask = (): Task => ({
   deadline: "",
   deadlineTime: "",
   reminderEnabled: false,
+  endReminderEnabled: false,
   description: "",
   subtasks: [],
   completedDays: [],
@@ -269,6 +273,7 @@ export const loadPlanner = (): PlannerState => {
                 urgent: task.urgent ?? false,
                 deadlineTime: task.deadlineTime ?? "",
                 reminderEnabled: task.reminderEnabled ?? false,
+                endReminderEnabled: task.endReminderEnabled ?? false,
                 subtasks: Array.isArray(task.subtasks) ? task.subtasks : [],
                 completedDays: Array.isArray(task.completedDays)
                   ? task.completedDays

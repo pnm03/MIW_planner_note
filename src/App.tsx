@@ -602,6 +602,7 @@ function App() {
     dayKey: DayKey;
     startTime: string;
     remainingMin: number;
+    isEnd?: boolean;
   } | null>(null);
 
   const notifiedReminderKeys = useRef<Set<string>>(new Set());
@@ -787,12 +788,12 @@ function App() {
       // 1. Check projects and tasks
       planner.projects.forEach((project) => {
         project.tasks.forEach((task) => {
-          if (task.completed || !task.reminderEnabled) {
+          if (task.completed) {
             return;
           }
 
           // Legacy deadline-based check
-          if (task.deadline && task.deadlineTime) {
+          if (task.reminderEnabled && task.deadline && task.deadlineTime) {
             const notifiedKey = notifiedTasks.current.get(task.id);
             const currentDeadlineKey = `${task.deadline}T${task.deadlineTime}`;
             if (notifiedKey !== currentDeadlineKey) {
@@ -818,14 +819,15 @@ function App() {
                   projectTitle: project.title,
                   dayKey: getTodayKey(),
                   startTime: task.deadlineTime || "",
-                  remainingMin: 0
+                  remainingMin: 0,
+                  isEnd: false
                 });
               }
             }
           }
 
           // Day-based schedule reminder check
-          if (task.days && task.days.length > 0) {
+          if (task.reminderEnabled && task.days && task.days.length > 0) {
             task.days.forEach((day) => {
               const matchingDate = currentWeekDays.find(d => d.key === day);
               if (!matchingDate) return;
@@ -854,10 +856,14 @@ function App() {
                     playReminderSound(task.reminderSound);
 
                     if (Notification.permission === "granted") {
-                      const notification = new Notification(`Nhắc nhở công việc: ${task.title || "Công việc chưa đặt tên"}`, {
-                        body: `Dự án: ${project.title}\nThời gian: ${dayLabels[day]} lúc ${dayTime.startTime}`,
-                        icon: "/favicon.jpg"
-                      });
+                      const remainingText = offset === 0 ? "Bắt đầu ngay bây giờ" : `Còn ${offset} phút nữa là bắt đầu`;
+                      const notification = new Notification(
+                        offset === 0 ? `Bắt đầu: ${task.title || "Công việc chưa đặt tên"}` : `Nhắc nhở công việc: ${task.title || "Công việc chưa đặt tên"}`,
+                        {
+                          body: `Dự án: ${project.title}\nThời gian: ${dayLabels[day]} lúc ${dayTime.startTime} (${remainingText})`,
+                          icon: "/favicon.jpg"
+                        }
+                      );
                       notification.onclick = () => {
                         window.focus();
                       };
@@ -868,7 +874,65 @@ function App() {
                       projectTitle: project.title,
                       dayKey: day,
                       startTime: dayTime.startTime || "",
-                      remainingMin
+                      remainingMin,
+                      isEnd: false
+                    });
+                  }
+                }
+              });
+            });
+          }
+
+          // Day-based end schedule reminder check
+          if (task.endReminderEnabled && task.days && task.days.length > 0) {
+            task.days.forEach((day) => {
+              const matchingDate = currentWeekDays.find(d => d.key === day);
+              if (!matchingDate) return;
+
+              const dayTime = task.dayTimes?.[day] || (task.startTime && task.endTime ? { startTime: task.startTime, endTime: task.endTime } : null);
+              if (!dayTime || !dayTime.endTime) return;
+
+              const dateStr = toIsoDate(matchingDate.date);
+              const scheduledEndStr = `${dateStr}T${dayTime.endTime}:00`;
+              const endTimeMs = new Date(scheduledEndStr).getTime();
+              if (Number.isNaN(endTimeMs)) return;
+
+              const endOffsets = task.endReminderOffsets && task.endReminderOffsets.length > 0 ? task.endReminderOffsets : [0];
+              endOffsets.forEach((offset: number) => {
+                const triggerTimeMs = endTimeMs - offset * 60 * 1000;
+                const diff = now.getTime() - triggerTimeMs;
+
+                if (diff >= 0 && diff < 60_000) {
+                  const reminderKey = `${task.id}-${day}-end-${offset}-${dateStr}`;
+                  if (!notifiedReminderKeys.current.has(reminderKey)) {
+                    notifiedReminderKeys.current.add(reminderKey);
+                    localStorage.setItem("notified_reminder_keys", JSON.stringify(Array.from(notifiedReminderKeys.current)));
+
+                    const remainingMin = Math.round((endTimeMs - now.getTime()) / 60000);
+
+                    playReminderSound(task.endReminderSound);
+
+                    if (Notification.permission === "granted") {
+                      const remainingText = offset === 0 ? "Hết giờ ngay bây giờ" : `Còn ${offset} phút nữa là kết thúc`;
+                      const notification = new Notification(
+                        offset === 0 ? `Hết giờ: ${task.title || "Công việc chưa đặt tên"}` : `Sắp hết giờ: ${task.title || "Công việc chưa đặt tên"}`,
+                        {
+                          body: `Dự án: ${project.title}\nThời gian: ${dayLabels[day]} lúc ${dayTime.endTime} (${remainingText})`,
+                          icon: "/favicon.jpg"
+                        }
+                      );
+                      notification.onclick = () => {
+                        window.focus();
+                      };
+                    }
+
+                    setActiveReminder({
+                      task,
+                      projectTitle: project.title,
+                      dayKey: day,
+                      startTime: dayTime.endTime || "",
+                      remainingMin,
+                      isEnd: true
                     });
                   }
                 }
@@ -919,13 +983,19 @@ function App() {
                   remainingMin = Math.round((startTimeMs - now.getTime()) / 60000);
                 }
 
-                playReminderSound(freshTask.reminderSound);
+                playReminderSound(snooze.sound || freshTask.reminderSound);
 
                 if (Notification.permission === "granted") {
-                  const notification = new Notification(`Báo thức lại: ${freshTask.title || "Công việc chưa đặt tên"}`, {
-                    body: `Dự án: ${freshProjectTitle}\nThời gian: ${dayLabels[snooze.dayKey as DayKey]} lúc ${snooze.startTime}`,
-                    icon: "/favicon.jpg"
-                  });
+                  const labelType = snooze.isEnd ? "Kết thúc" : "Thời gian";
+                  const notification = new Notification(
+                    snooze.isEnd 
+                      ? `Báo thức lại (Hết giờ): ${freshTask.title || "Công việc chưa đặt tên"}`
+                      : `Báo thức lại: ${freshTask.title || "Công việc chưa đặt tên"}`, 
+                    {
+                      body: `Dự án: ${freshProjectTitle}\n${labelType}: ${dayLabels[snooze.dayKey as DayKey]} lúc ${snooze.startTime}`,
+                      icon: "/favicon.jpg"
+                    }
+                  );
                   notification.onclick = () => {
                     window.focus();
                   };
@@ -936,7 +1006,8 @@ function App() {
                   projectTitle: freshProjectTitle,
                   dayKey: snooze.dayKey,
                   startTime: snooze.startTime,
-                  remainingMin
+                  remainingMin,
+                  isEnd: snooze.isEnd
                 });
               }
             });
@@ -1622,7 +1693,9 @@ function App() {
             </div>
             
             <h3 style={{ margin: "0 0 8px 0", fontSize: "18px", color: "var(--ink)", fontFamily: "Fraunces, serif" }}>
-              Đến giờ nhắc nhở công việc
+              {activeReminder.isEnd
+                ? (activeReminder.remainingMin <= 0 ? "Đến giờ kết thúc công việc" : "Sắp hết giờ làm việc")
+                : "Đến giờ nhắc nhở công việc"}
             </h3>
             
             <div style={{ background: "var(--accent-soft)", padding: "12px 16px", borderRadius: "8px", margin: "16px 0", textAlign: "left" }}>
@@ -1634,7 +1707,7 @@ function App() {
               </div>
               <div style={{ fontSize: "12px", color: "var(--ink-soft)", marginTop: "6px", display: "flex", alignItems: "center", gap: "4px" }}>
                 <Clock3 size={13} />
-                {(dayLabels as any)[activeReminder.dayKey] || activeReminder.dayKey} lúc {activeReminder.startTime}
+                {(dayLabels as any)[activeReminder.dayKey] || activeReminder.dayKey} lúc {activeReminder.startTime} {activeReminder.isEnd ? "(Kết thúc)" : "(Bắt đầu)"}
               </div>
             </div>
 
@@ -1654,7 +1727,9 @@ function App() {
                     projectName: activeReminder.projectTitle,
                     dayKey: activeReminder.dayKey,
                     startTime: activeReminder.startTime,
-                    triggerTimeMs
+                    triggerTimeMs,
+                    isEnd: activeReminder.isEnd,
+                    sound: activeReminder.isEnd ? activeReminder.task.endReminderSound : activeReminder.task.reminderSound
                   };
                   
                   try {
@@ -4125,6 +4200,7 @@ const formatTimeMask = (raw: string): string => {
 };
 
 const presetOptions = [
+  { label: "Đúng giờ", value: 0 },
   { label: "1 phút", value: 1 },
   { label: "5 phút", value: 5 },
   { label: "10 phút", value: 10 },
@@ -4147,6 +4223,9 @@ const isTaskEqual = (a: Task, b: Task): boolean => {
   if ((a.startTime ?? "") !== (b.startTime ?? "")) return false;
   if ((a.endTime ?? "") !== (b.endTime ?? "")) return false;
   if (!!a.reminderEnabled !== !!b.reminderEnabled) return false;
+  if ((a.reminderSound ?? "default") !== (b.reminderSound ?? "default")) return false;
+  if (!!a.endReminderEnabled !== !!b.endReminderEnabled) return false;
+  if ((a.endReminderSound ?? "default") !== (b.endReminderSound ?? "default")) return false;
   if ((a.description ?? "") !== (b.description ?? "")) return false;
   if (!!a.completed !== !!b.completed) return false;
 
@@ -4168,6 +4247,16 @@ const isTaskEqual = (a: Task, b: Task): boolean => {
   const sortedOffsetsB = [...offsetsB].sort((x, y) => x - y);
   for (let i = 0; i < sortedOffsetsA.length; i++) {
     if (sortedOffsetsA[i] !== sortedOffsetsB[i]) return false;
+  }
+
+  // Compare endReminderOffsets array
+  const endOffsetsA = a.endReminderOffsets ?? [];
+  const endOffsetsB = b.endReminderOffsets ?? [];
+  if (endOffsetsA.length !== endOffsetsB.length) return false;
+  const sortedEndOffsetsA = [...endOffsetsA].sort((x, y) => x - y);
+  const sortedEndOffsetsB = [...endOffsetsB].sort((x, y) => x - y);
+  for (let i = 0; i < sortedEndOffsetsA.length; i++) {
+    if (sortedEndOffsetsA[i] !== sortedEndOffsetsB[i]) return false;
   }
 
   // Compare dayTimes object
@@ -4263,6 +4352,11 @@ function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps
   const [customHourVal, setCustomHourVal] = useState("");
   const [customMinVal, setCustomMinVal] = useState("");
   const [modalReminderSound, setModalReminderSound] = useState<string>("default");
+  const [modalEndReminderEnabled, setModalEndReminderEnabled] = useState(false);
+  const [modalEndReminderOffsets, setModalEndReminderOffsets] = useState<number[]>([]);
+  const [customEndHourVal, setCustomEndHourVal] = useState("");
+  const [customEndMinVal, setCustomEndMinVal] = useState("");
+  const [modalEndReminderSound, setModalEndReminderSound] = useState<string>("default");
   const [showConfirmCloseModal, setShowConfirmCloseModal] = useState(false);
 
   const startOptions = useMemo(() => {
@@ -4338,6 +4432,11 @@ function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps
     setCustomHourVal("");
     setCustomMinVal("");
     setModalReminderSound(draft.reminderSound ?? "default");
+    setModalEndReminderEnabled(draft.endReminderEnabled ?? false);
+    setModalEndReminderOffsets(draft.endReminderOffsets ?? []);
+    setCustomEndHourVal("");
+    setCustomEndMinVal("");
+    setModalEndReminderSound(draft.endReminderSound ?? "default");
     setShowTimeModal(true);
   };
 
@@ -4491,7 +4590,10 @@ function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps
         endTime: fallbackEnd,
         reminderEnabled: modalReminderEnabled,
         reminderOffsets: modalReminderOffsets,
-        reminderSound: modalReminderSound
+        reminderSound: modalReminderSound,
+        endReminderEnabled: modalEndReminderEnabled,
+        endReminderOffsets: modalEndReminderOffsets,
+        endReminderSound: modalEndReminderSound
       };
     });
 
@@ -5285,7 +5387,7 @@ function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps
                         Nhắc nhở trước giờ bắt đầu
                       </div>
                       <div style={{ fontSize: "10px", color: "var(--ink-faint)", marginTop: "2px" }}>
-                        {modalReminderEnabled ? "Đang bật · sẽ thông báo đúng giờ" : "Nhấn để bật chế độ nhắc nhở"}
+                        {modalReminderEnabled ? "Đang bật · sẽ thông báo trước khi bắt đầu" : "Nhấn để bật nhắc trước khi bắt đầu"}
                       </div>
                     </div>
                   </div>
@@ -5370,8 +5472,8 @@ function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps
                           const h = parseInt(customHourVal, 10) || 0;
                           const m = parseInt(customMinVal, 10) || 0;
                           const totalMinutes = h * 60 + m;
-                          if (totalMinutes <= 0) {
-                            alert("Vui lòng nhập thời gian nhắc nhở lớn hơn 0!");
+                          if (totalMinutes < 0) {
+                            alert("Vui lòng nhập thời gian nhắc nhở hợp lệ!");
                             return;
                           }
                           if (totalMinutes > 1440) {
@@ -5382,8 +5484,9 @@ function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps
                             alert("Mốc nhắc nhở này đã tồn tại!");
                             return;
                           }
-                          if (modalReminderOffsets.length >= 3) {
-                            alert("Bạn chỉ được chọn tối đa 3 mốc thời gian nhắc nhở!");
+                          const maxStart = modalReminderOffsets.includes(0) ? 4 : 3;
+                          if (modalReminderOffsets.length >= maxStart) {
+                            alert(`Bạn chỉ được chọn tối đa ${maxStart} mốc thời gian nhắc nhở!`);
                             return;
                           }
                           setModalReminderOffsets(prev => [...prev, totalMinutes].sort((a, b) => a - b));
@@ -5424,8 +5527,9 @@ function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps
                                 if (isChecked) {
                                   setModalReminderOffsets(prev => prev.filter(v => v !== opt.value));
                                 } else {
-                                  if (modalReminderOffsets.length >= 3) {
-                                    alert("Bạn chỉ được chọn tối đa 3 mốc thời gian nhắc nhở!");
+                                  const maxStart = modalReminderOffsets.includes(0) || opt.value === 0 ? 4 : 3;
+                                  if (modalReminderOffsets.length >= maxStart) {
+                                    alert(`Bạn chỉ được chọn tối đa ${maxStart} mốc thời gian nhắc nhở!`);
                                     return;
                                   }
                                   setModalReminderOffsets(prev => [...prev, opt.value].sort((a, b) => a - b));
@@ -5502,7 +5606,275 @@ function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps
                     </div>
 
                     <div style={{ fontSize: "10px", color: "var(--ink-soft)", fontStyle: "italic" }}>
-                      Đã chọn {modalReminderOffsets.length}/3 mốc nhắc nhở (tối đa 1 ngày trước giờ bắt đầu).
+                      Đã chọn {modalReminderOffsets.length}/{modalReminderOffsets.includes(0) ? 4 : 3} mốc nhắc nhở (tối đa 1 ngày trước giờ bắt đầu).
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* End-time reminder section */}
+              <div style={{ marginBottom: "16px", opacity: isNoDaySelected ? 0.5 : 1 }}>
+                <div
+                  className="reminder-card"
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    padding: "10px 14px",
+                    borderRadius: "10px",
+                    border: `1.5px solid ${modalEndReminderEnabled ? "var(--accent)" : "var(--line)"}`,
+                    background: modalEndReminderEnabled ? "var(--accent-soft)" : "var(--paper)",
+                    cursor: isNoDaySelected ? "not-allowed" : "pointer",
+                    transition: "all 0.25s ease",
+                    marginBottom: "8px",
+                    userSelect: "none"
+                  }}
+                  onClick={() => {
+                    if (isNoDaySelected) return;
+                    const next = !modalEndReminderEnabled;
+                    setModalEndReminderEnabled(next);
+                    if (next && modalEndReminderOffsets.length === 0) {
+                      setModalEndReminderOffsets([0]);
+                    }
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                    <div style={{
+                      width: 32, height: 32,
+                      borderRadius: "50%",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      background: modalEndReminderEnabled ? "var(--accent)" : "var(--line)",
+                      color: modalEndReminderEnabled ? "#fff" : "var(--ink-faint)",
+                      transition: "all 0.25s ease",
+                      flexShrink: 0
+                    }}>
+                      <Clock3 size={16} />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--ink)", fontFamily: "Fraunces, serif" }}>
+                        Nhắc nhở trước giờ kết thúc
+                      </div>
+                      <div style={{ fontSize: "10px", color: "var(--ink-faint)", marginTop: "2px" }}>
+                        {modalEndReminderEnabled ? "Đang bật · sẽ thông báo trước khi kết thúc" : "Nhấn để bật nhắc trước khi kết thúc"}
+                      </div>
+                    </div>
+                  </div>
+                  {/* Toggle switch */}
+                  <div
+                    className="toggle-track"
+                    style={{
+                      width: 42, height: 24,
+                      borderRadius: 12,
+                      background: modalEndReminderEnabled ? "var(--accent)" : "var(--line-strong)",
+                      position: "relative",
+                      transition: "background 0.25s ease",
+                      flexShrink: 0
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: 18, height: 18,
+                        borderRadius: "50%",
+                        background: "#fff",
+                        boxShadow: "0 1px 3px rgba(0,0,0,0.18)",
+                        position: "absolute",
+                        top: 3,
+                        left: modalEndReminderEnabled ? 21 : 3,
+                        transition: "left 0.25s ease"
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {modalEndReminderEnabled && !isNoDaySelected && (
+                  <div style={{ display: "grid", gap: "12px", padding: "14px", background: "var(--accent-soft)", borderRadius: "8px", border: "1px solid var(--line)", boxShadow: "var(--shadow-sm)" }}>
+                    {/* Custom input for end reminder */}
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", marginBottom: "4px" }}>
+                      <span style={{ fontSize: "11px", fontWeight: "bold", color: "var(--ink-soft)" }}>Tùy chỉnh nhắc trước:</span>
+                      <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                        <input
+                          type="number"
+                          min="0"
+                          max="24"
+                          placeholder="0"
+                          value={customEndHourVal}
+                          onChange={(e) => setCustomEndHourVal(e.target.value)}
+                          style={{
+                            width: "50px",
+                            padding: "5px 8px",
+                            border: "1px solid var(--line-strong)",
+                            borderRadius: "6px",
+                            fontSize: "11px",
+                            background: "var(--paper)",
+                            color: "var(--ink)",
+                            textAlign: "center"
+                          }}
+                        />
+                        <span style={{ fontSize: "11px", color: "var(--ink-soft)" }}>giờ</span>
+                        
+                        <input
+                          type="number"
+                          min="0"
+                          max="59"
+                          placeholder="0"
+                          value={customEndMinVal}
+                          onChange={(e) => setCustomEndMinVal(e.target.value)}
+                          style={{
+                            width: "50px",
+                            padding: "5px 8px",
+                            border: "1px solid var(--line-strong)",
+                            borderRadius: "6px",
+                            fontSize: "11px",
+                            background: "var(--paper)",
+                            color: "var(--ink)",
+                            textAlign: "center"
+                          }}
+                        />
+                        <span style={{ fontSize: "11px", color: "var(--ink-soft)" }}>phút</span>
+                      </div>
+                      
+                      <button
+                        type="button"
+                        className="add-reminder-btn"
+                        onClick={() => {
+                          const h = parseInt(customEndHourVal, 10) || 0;
+                          const m = parseInt(customEndMinVal, 10) || 0;
+                          const totalMinutes = h * 60 + m;
+                          if (totalMinutes < 0) {
+                            alert("Vui lòng nhập thời gian nhắc nhở hợp lệ!");
+                            return;
+                          }
+                          if (totalMinutes > 1440) {
+                            alert("Thời gian nhắc nhở tối đa là 1 ngày (24 giờ)!");
+                            return;
+                          }
+                          if (modalEndReminderOffsets.includes(totalMinutes)) {
+                            alert("Mốc nhắc nhở này đã tồn tại!");
+                            return;
+                          }
+                          const maxEnd = modalEndReminderOffsets.includes(0) ? 4 : 3;
+                          if (modalEndReminderOffsets.length >= maxEnd) {
+                            alert(`Bạn chỉ được chọn tối đa ${maxEnd} mốc thời gian nhắc nhở!`);
+                            return;
+                          }
+                          setModalEndReminderOffsets(prev => [...prev, totalMinutes].sort((a, b) => a - b));
+                          setCustomEndHourVal("");
+                          setCustomEndMinVal("");
+                        }}
+                      >
+                        <Plus size={12} /> Thêm
+                      </button>
+                    </div>
+
+                    {/* Checklist of options */}
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "6px" }}>
+                      {presetOptions.map(opt => {
+                        const isChecked = modalEndReminderOffsets.includes(opt.value);
+                        return (
+                          <label
+                            key={opt.value}
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "4px",
+                              fontSize: "10px",
+                              color: isChecked ? "var(--accent)" : "var(--ink)",
+                              cursor: "pointer",
+                              padding: "4px 6px",
+                              background: isChecked ? "var(--paper)" : "transparent",
+                              border: "1px solid " + (isChecked ? "var(--accent)" : "var(--line)"),
+                              borderRadius: "4px",
+                              transition: "all 0.2s",
+                              userSelect: "none"
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={() => {
+                                if (isChecked) {
+                                  setModalEndReminderOffsets(prev => prev.filter(v => v !== opt.value));
+                                } else {
+                                  const maxEnd = modalEndReminderOffsets.includes(0) || opt.value === 0 ? 4 : 3;
+                                  if (modalEndReminderOffsets.length >= maxEnd) {
+                                    alert(`Bạn chỉ được chọn tối đa ${maxEnd} mốc thời gian nhắc nhở!`);
+                                    return;
+                                  }
+                                  setModalEndReminderOffsets(prev => [...prev, opt.value].sort((a, b) => a - b));
+                                }
+                              }}
+                              style={{ accentColor: "var(--accent)" }}
+                            />
+                            {opt.label}
+                          </label>
+                        );
+                      })}
+                    </div>
+
+                    {/* Selected custom offsets list (showing ones that aren't in presets) */}
+                    {modalEndReminderOffsets.some(v => !presetOptions.map(p => p.value).includes(v)) && (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: "4px", alignItems: "center" }}>
+                        <span style={{ fontSize: "10px", color: "var(--ink-soft)" }}>Tự chọn:</span>
+                        {modalEndReminderOffsets
+                          .filter(v => !presetOptions.map(p => p.value).includes(v))
+                          .map(val => (
+                            <span
+                              key={val}
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "3px",
+                                fontSize: "10px",
+                                background: "var(--paper)",
+                                color: "var(--accent)",
+                                padding: "1px 5px",
+                                borderRadius: "4px",
+                                border: "1px solid var(--accent)"
+                              }}
+                            >
+                              {val >= 60 ? `${val / 60} giờ` : `${val} phút`}
+                              <span
+                                style={{ cursor: "pointer", fontWeight: "bold", marginLeft: "2px" }}
+                                onClick={() => setModalEndReminderOffsets(prev => prev.filter(v => v !== val))}
+                              >
+                                ×
+                              </span>
+                            </span>
+                          ))}
+                      </div>
+                    )}
+
+                    {/* Sound Selector */}
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", marginTop: "4px", padding: "10px 0 4px 0", borderTop: "1px dashed var(--line)" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "6px", flex: "1 1 auto" }}>
+                        <Volume2 size={14} style={{ color: "var(--accent)", flexShrink: 0 }} />
+                        <span style={{ fontSize: "11px", fontWeight: 700, color: "var(--ink-soft)", whiteSpace: "nowrap" }}>Âm thanh:</span>
+                        <select
+                          value={modalEndReminderSound}
+                          onChange={(e) => {
+                            const snd = e.target.value;
+                            setModalEndReminderSound(snd);
+                            playReminderSound(snd);
+                          }}
+                          className="sound-select"
+                        >
+                          <option value="default">Mặc định (Beep)</option>
+                          <option value="chime">Chuông ngân (Chime)</option>
+                          <option value="double">Nhấp đúp (Double Beep)</option>
+                          <option value="retro">Cổ điển (Retro)</option>
+                        </select>
+                      </div>
+                      <button
+                        type="button"
+                        className="sound-preview-btn"
+                        onClick={() => playReminderSound(modalEndReminderSound)}
+                      >
+                        <Volume2 size={12} /> Nghe thử
+                      </button>
+                    </div>
+
+                    <div style={{ fontSize: "10px", color: "var(--ink-soft)", fontStyle: "italic" }}>
+                      Đã chọn {modalEndReminderOffsets.length}/{modalEndReminderOffsets.includes(0) ? 4 : 3} mốc nhắc nhở (tối đa 1 ngày trước giờ kết thúc).
                     </div>
                   </div>
                 )}
