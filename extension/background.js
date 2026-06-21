@@ -30,32 +30,11 @@ const getWeekDates = (offset) => {
   });
 };
 
-const sendMessageToTab = (tab, info) => {
-  chrome.tabs.sendMessage(tab.id, { type: "SHOW_REMINDER", data: info }, (response) => {
-    if (chrome.runtime.lastError) {
-      sendSystemNotification(info);
-    } else {
-      sendSystemNotification(info);
-    }
-  });
-};
-
 const triggerReminder = (info) => {
-  // Query active tab in the last focused window
-  chrome.tabs.query({ active: true, lastFocusedWindow: true }, (tabs) => {
-    let targetTab = tabs && tabs[0];
-    if (!targetTab) {
-      // Fallback: active tab in any window
-      chrome.tabs.query({ active: true }, (allActiveTabs) => {
-        if (allActiveTabs && allActiveTabs.length > 0) {
-          sendMessageToTab(allActiveTabs[0], info);
-        } else {
-          sendSystemNotification(info);
-        }
-      });
-    } else {
-      sendMessageToTab(targetTab, info);
-    }
+  // Save to storage to sync across all tabs (even new/suspended ones)
+  chrome.storage.local.set({ activeReminder: info }, () => {
+    // Send system notification as well
+    sendSystemNotification(info);
   });
 };
 
@@ -211,6 +190,24 @@ const checkReminders = () => {
 // Create Alarm on Install
 chrome.runtime.onInstalled.addListener(() => {
   chrome.alarms.create("reminder-check", { periodInMinutes: 1 });
+
+  // Inject content.js into all existing tabs to prevent manual refresh
+  chrome.tabs.query({}, (tabs) => {
+    if (tabs) {
+      tabs.forEach((tab) => {
+        if (tab.url && !tab.url.startsWith("chrome://") && !tab.url.startsWith("chrome-extension://") && !tab.url.startsWith("https://chrome.google.com/webstore")) {
+          chrome.scripting.executeScript({
+            target: { tabId: tab.id },
+            files: ["content.js"]
+          }, () => {
+            if (chrome.runtime.lastError) {
+              // Ignore
+            }
+          });
+        }
+      });
+    }
+  });
 });
 
 // Run Check on Alarm Fire

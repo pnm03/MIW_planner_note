@@ -317,25 +317,44 @@ const showReminderPopup = (info) => {
       sound: soundId
     };
 
-    chrome.runtime.sendMessage({ type: "SNOOZE_REMINDER", data: newSnooze }, () => {
-      card.classList.remove("show");
-      setTimeout(() => container.remove(), 400);
+    chrome.storage.local.remove("activeReminder", () => {
+      chrome.runtime.sendMessage({ type: "SNOOZE_REMINDER", data: newSnooze });
     });
   });
 
   shadowRoot.getElementById("btn-dismiss").addEventListener("click", () => {
-    card.classList.remove("show");
-    setTimeout(() => container.remove(), 400);
+    chrome.storage.local.remove("activeReminder");
   });
 };
 
-// Listen for messages from background script
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.type === "SHOW_REMINDER") {
-    showReminderPopup(message.data);
-    sendResponse({ status: "displayed" });
+// Check if there is an active reminder on load
+chrome.storage.local.get(["activeReminder"], (res) => {
+  if (res.activeReminder) {
+    showReminderPopup(res.activeReminder);
   }
-  return true;
+});
+
+// Listen for changes to activeReminder in storage
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName === "local" && changes.activeReminder) {
+    const val = changes.activeReminder.newValue;
+    if (val) {
+      showReminderPopup(val);
+    } else {
+      // Clear popup if activeReminder was removed
+      const existingContainer = document.getElementById("miw-planner-reminder-container");
+      if (existingContainer) {
+        const shadow = existingContainer.shadowRoot;
+        const card = shadow ? shadow.querySelector(".modal-card") : null;
+        if (card) {
+          card.classList.remove("show");
+          setTimeout(() => existingContainer.remove(), 400);
+        } else {
+          existingContainer.remove();
+        }
+      }
+    }
+  }
 });
 
 // Sync data to extension storage if page is MIW Planner
