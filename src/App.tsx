@@ -75,6 +75,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "./supabaseClient";
 import { AuthPage } from "./AuthPage";
+import logoImg from "./logo.jpg";
 
 type View = "plan" | "days" | "stats" | "archive" | "auth";
 
@@ -1586,7 +1587,8 @@ function Header({
   return (
     <header className="site-header">
       <div className="header-main">
-        <button className="brand" onClick={() => onView("plan")}>
+        <button className="brand" onClick={() => onView("plan")} style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <img src={logoImg} alt="logo" style={{ width: "26px", height: "26px", borderRadius: "6px", objectFit: "cover" }} />
           miw planner<span>.</span>
         </button>
 
@@ -2614,12 +2616,15 @@ function WeekPane({
                 if (isCompleted) return false;
                 if (currentWeek && dayIndex < todayIndex) return true;
 
-                if (currentWeek && day === todayKey && task.endTime) {
-                  const [endH, endM] = task.endTime.split(":").map(Number);
-                  const now = new Date();
-                  const currentMinutes = now.getHours() * 60 + now.getMinutes();
-                  const endMinutes = endH * 60 + endM;
-                  return currentMinutes > endMinutes;
+                if (currentWeek && day === todayKey) {
+                  const dayTime = task.dayTimes?.[day] || (task.startTime && task.endTime ? { startTime: task.startTime, endTime: task.endTime } : null);
+                  if (dayTime?.endTime) {
+                    const [endH, endM] = dayTime.endTime.split(":").map(Number);
+                    const now = new Date();
+                    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+                    const endMinutes = endH * 60 + endM;
+                    return currentMinutes > endMinutes;
+                  }
                 }
                 return false;
               }).length;
@@ -3687,10 +3692,11 @@ function DayColumn({
               ? (task.completedDates ?? []).includes(dayDateStr)
               : task.completed;
             
+            const dayTime = task.dayTimes?.[day] || (task.startTime && task.endTime ? { startTime: task.startTime, endTime: task.endTime } : null);
             const isToday = currentWeek && day === todayKey;
             let isOverdueToday = false;
-            if (isToday && !isCompleted && task.endTime) {
-              const [endH, endM] = task.endTime.split(":").map(Number);
+            if (isToday && !isCompleted && dayTime?.endTime) {
+              const [endH, endM] = dayTime.endTime.split(":").map(Number);
               const now = new Date();
               const currentMinutes = now.getHours() * 60 + now.getMinutes();
               const endMinutes = endH * 60 + endM;
@@ -3746,13 +3752,13 @@ function DayColumn({
                   {(task.description ||
                     task.deadline ||
                     task.subtasks.length > 0 ||
-                    (task.startTime && task.endTime) ||
+                    (dayTime?.startTime && dayTime?.endTime) ||
                     missed) && (
                     <small>
-                      {task.startTime && task.endTime && (
+                      {dayTime?.startTime && dayTime?.endTime && (
                         <b className="time-badge" style={{ display: "inline-flex", alignItems: "center", gap: "3px", color: "var(--accent)", marginRight: "6px" }}>
                           <Clock3 size={10} />
-                          {task.startTime} - {task.endTime}
+                          {dayTime.startTime} - {dayTime.endTime}
                         </b>
                       )}
                       {task.description && <em>{task.description}</em>}
@@ -3809,78 +3815,234 @@ interface TaskEditorProps {
   onSave: (task: Task) => void;
 }
 
+function getDurationText(start: string, end: string): string {
+  if (!start || !end) return "";
+  const [sh, sm] = start.split(":").map(Number);
+  const [eh, em] = end.split(":").map(Number);
+  const diff = (eh * 60 + em) - (sh * 60 + sm);
+  if (diff <= 0) return "";
+  const h = Math.floor(diff / 60);
+  const m = diff % 60;
+  if (h > 0 && m > 0) return `${h}h${m}p`;
+  if (h > 0) return `${h}h`;
+  return `${m}p`;
+}
+
 function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps) {
-  const [draft, setDraft] = useState<Task>(() => clone(task));
+  const [draft, setDraft] = useState<Task>(() => {
+    const cloned = clone(task);
+    if (!cloned.dayTimes) {
+      cloned.dayTimes = {};
+    }
+    // Backward compatibility
+    if (cloned.startTime && cloned.endTime) {
+      cloned.days.forEach(day => {
+        if (!cloned.dayTimes![day]) {
+          cloned.dayTimes![day] = {
+            startTime: cloned.startTime,
+            endTime: cloned.endTime
+          };
+        }
+      });
+    }
+    return cloned;
+  });
+
   const [showTimeModal, setShowTimeModal] = useState(false);
-  const [tempStartTime, setTempStartTime] = useState(task.startTime ?? "");
-  const [tempEndTime, setTempEndTime] = useState(task.endTime ?? "");
+  const [activeModalDay, setActiveModalDay] = useState<DayKey>("mon");
+  const [tempDayTimes, setTempDayTimes] = useState<Partial<Record<DayKey, { startTime?: string; endTime?: string }>>>(() => draft.dayTimes ?? {});
+  
+  const [startOpen, setStartOpen] = useState(false);
+  const [endOpen, setEndOpen] = useState(false);
   const [timeError, setTimeError] = useState("");
 
+  const startOptions = useMemo(() => {
+    const options: string[] = [];
+    for (let h = 0; h < 24; h++) {
+      for (let m = 0; m < 60; m += 15) {
+        const hh = h.toString().padStart(2, '0');
+        const mm = m.toString().padStart(2, '0');
+        options.push(`${hh}:${mm}`);
+      }
+    }
+    return options;
+  }, []);
+
+  const activeDayTime = tempDayTimes[activeModalDay] || {};
+  const currentStart = activeDayTime.startTime ?? "";
+  const currentEnd = activeDayTime.endTime ?? "";
+
+  const endOptions = useMemo(() => {
+    if (!currentStart) return [];
+    const [sh, sm] = currentStart.split(":").map(Number);
+    const startMin = sh * 60 + sm;
+    const options: { value: string; label: string }[] = [];
+    for (let min = startMin + 15; min <= 1440; min += 15) {
+      const h = Math.floor(min / 60);
+      const m = min % 60;
+      let timeVal = "";
+      if (h === 24 && m === 0) {
+        timeVal = "24:00";
+      } else {
+        const hh = h.toString().padStart(2, '0');
+        const mm = m.toString().padStart(2, '0');
+        timeVal = `${hh}:${mm}`;
+      }
+      const diff = min - startMin;
+      let durText = "";
+      if (diff < 60) {
+        durText = `${diff} phút`;
+      } else if (diff % 60 === 0) {
+        durText = `${diff / 60} giờ`;
+      } else if (diff % 30 === 0) {
+        durText = `${(diff / 60).toFixed(1).replace(".", ",")} giờ`;
+      } else {
+        const dh = Math.floor(diff / 60);
+        const dm = diff % 60;
+        durText = `${dh}h${dm}p`;
+      }
+      options.push({ value: timeVal, label: `${timeVal} (${durText})` });
+    }
+    return options;
+  }, [currentStart]);
+
+  const openTimeModalForDay = (day: DayKey) => {
+    setActiveModalDay(day);
+    setTempDayTimes(draft.dayTimes ?? {});
+    setTimeError("");
+    setStartOpen(false);
+    setEndOpen(false);
+    setShowTimeModal(true);
+  };
+
   const handleTimeConfirm = () => {
-    if (!tempStartTime || !tempEndTime) {
-      setTimeError("Vui lòng nhập đầy đủ giờ bắt đầu và kết thúc.");
-      return;
+    const updatedDayTimes = { ...tempDayTimes };
+    
+    for (const d of dayKeys) {
+      const dt = updatedDayTimes[d];
+      if (dt) {
+        if ((dt.startTime && !dt.endTime) || (!dt.startTime && dt.endTime)) {
+          setTimeError(`Vui lòng nhập đầy đủ giờ bắt đầu và kết thúc cho ${dayLabels[d]}.`);
+          return;
+        }
+        if (dt.startTime && dt.endTime) {
+          const [sh, sm] = dt.startTime.split(":").map(Number);
+          const [eh, em] = dt.endTime.split(":").map(Number);
+          if (eh * 60 + em <= sh * 60 + sm) {
+            setTimeError(`Giờ kết thúc phải sau giờ bắt đầu ở ${dayLabels[d]}.`);
+            return;
+          }
+        }
+      }
     }
-    const [startH, startM] = tempStartTime.split(":").map(Number);
-    const [endH, endM] = tempEndTime.split(":").map(Number);
-    const startMin = startH * 60 + startM;
-    const endMin = endH * 60 + endM;
-
-    if (endMin <= startMin) {
-      setTimeError("Giờ kết thúc phải sau giờ bắt đầu.");
-      return;
-    }
-
+    
     setTimeError("");
 
     let conflictTaskName = "";
     let conflictProjectName = "";
+    let conflictDayLabel = "";
 
-    for (const proj of planner.projects) {
-      for (const t of proj.tasks) {
-        if (t.id === draft.id) continue;
-        
-        const hasCommonDay = t.days.some((d) => draft.days.includes(d));
-        if (hasCommonDay && t.startTime && t.endTime) {
-          const [oStartH, oStartM] = t.startTime.split(":").map(Number);
-          const [oEndH, oEndM] = t.endTime.split(":").map(Number);
-          const oStart = oStartH * 60 + oStartM;
-          const oEnd = oEndH * 60 + oEndM;
+    for (const d of dayKeys) {
+      const dt = updatedDayTimes[d];
+      if (!dt || !dt.startTime || !dt.endTime) continue;
+      
+      const [sh, sm] = dt.startTime.split(":").map(Number);
+      const [eh, em] = dt.endTime.split(":").map(Number);
+      const startMin = sh * 60 + sm;
+      const endMin = eh * 60 + em;
 
-          if (startMin < oEnd && oStart < endMin) {
-            conflictTaskName = t.title;
-            conflictProjectName = proj.title;
-            break;
+      for (const proj of planner.projects) {
+        for (const t of proj.tasks) {
+          if (t.id === draft.id) continue;
+          
+          if (t.days.includes(d)) {
+            const otherDayTime = t.dayTimes?.[d] || (t.startTime && t.endTime ? { startTime: t.startTime, endTime: t.endTime } : null);
+            if (otherDayTime?.startTime && otherDayTime?.endTime) {
+              const [oStartH, oStartM] = otherDayTime.startTime.split(":").map(Number);
+              const [oEndH, oEndM] = otherDayTime.endTime.split(":").map(Number);
+              const oStart = oStartH * 60 + oStartM;
+              const oEnd = oEndH * 60 + oEndM;
+
+              if (startMin < oEnd && oStart < endMin) {
+                conflictTaskName = t.title;
+                conflictProjectName = proj.title;
+                conflictDayLabel = dayLabels[d];
+                break;
+              }
+            }
           }
         }
+        if (conflictTaskName) break;
       }
       if (conflictTaskName) break;
     }
 
     if (conflictTaskName) {
       const proceed = window.confirm(
-        `Thời gian này đang trùng với lịch của công việc "${conflictTaskName}" trong dự án "${conflictProjectName}". Bạn có muốn tiếp tục ghi không?`
+        `Thời gian ở ${conflictDayLabel} đang trùng với lịch của công việc "${conflictTaskName}" trong dự án "${conflictProjectName}". Bạn có muốn tiếp tục ghi không?`
       );
       if (!proceed) {
         return;
       }
     }
 
-    setDraft((current) => ({
-      ...current,
-      startTime: tempStartTime,
-      endTime: tempEndTime,
-    }));
+    setDraft((current) => {
+      const newDays = [...current.days];
+      dayKeys.forEach(d => {
+        const dt = updatedDayTimes[d];
+        if (dt?.startTime && dt?.endTime && !newDays.includes(d)) {
+          newDays.push(d);
+        }
+      });
+
+      const cleanedDayTimes: Partial<Record<DayKey, { startTime?: string; endTime?: string }>> = {};
+      dayKeys.forEach(d => {
+        const dt = updatedDayTimes[d];
+        if (dt?.startTime && dt?.endTime) {
+          cleanedDayTimes[d] = { startTime: dt.startTime, endTime: dt.endTime };
+        }
+      });
+
+      const firstActiveDay = dayKeys.find(d => cleanedDayTimes[d]?.startTime);
+      const fallbackStart = firstActiveDay ? cleanedDayTimes[firstActiveDay]?.startTime : undefined;
+      const fallbackEnd = firstActiveDay ? cleanedDayTimes[firstActiveDay]?.endTime : undefined;
+
+      return {
+        ...current,
+        days: newDays,
+        dayTimes: cleanedDayTimes,
+        startTime: fallbackStart,
+        endTime: fallbackEnd
+      };
+    });
+
     setShowTimeModal(false);
   };
 
   const toggleDay = (day: DayKey) => {
-    setDraft((current) => ({
-      ...current,
-      days: current.days.includes(day)
+    setDraft((current) => {
+      const isSelected = current.days.includes(day);
+      const newDays = isSelected
         ? current.days.filter((item) => item !== day)
-        : [...current.days, day],
-    }));
+        : [...current.days, day];
+      
+      const newDayTimes = { ...current.dayTimes };
+      if (isSelected && newDayTimes[day]) {
+        delete newDayTimes[day];
+      }
+      
+      const firstActiveDay = dayKeys.find(d => newDays.includes(d) && newDayTimes[d]?.startTime);
+      const fallbackStart = firstActiveDay ? newDayTimes[firstActiveDay]?.startTime : undefined;
+      const fallbackEnd = firstActiveDay ? newDayTimes[firstActiveDay]?.endTime : undefined;
+
+      return {
+        ...current,
+        days: newDays,
+        dayTimes: newDayTimes,
+        startTime: fallbackStart,
+        endTime: fallbackEnd
+      };
+    });
   };
 
   return (
@@ -4013,17 +4175,73 @@ function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps
 
         <div className="field-label">
           Gán vào ngày
-          <div className="editor-days">
-            {dayKeys.map((day) => (
-              <button
-                key={day}
-                className={draft.days.includes(day) ? "selected" : ""}
-                onClick={() => toggleDay(day)}
-              >
-                {dayLabels[day]}
-                {draft.days.includes(day) && <i>•</i>}
-              </button>
-            ))}
+          <div className="editor-days" style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: "6px", marginBottom: "8px" }}>
+            {dayKeys.map((day) => {
+              const isSelected = draft.days.includes(day);
+              const dayTime = draft.dayTimes?.[day];
+              const timeStr = dayTime?.startTime && dayTime?.endTime 
+                ? `${dayTime.startTime}-${dayTime.endTime}`
+                : "";
+              const durationStr = dayTime?.startTime && dayTime?.endTime
+                ? `(${getDurationText(dayTime.startTime, dayTime.endTime)})`
+                : "";
+              
+              return (
+                <div key={day} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "4px" }}>
+                  <button
+                    type="button"
+                    className={isSelected ? "selected" : ""}
+                    onClick={() => toggleDay(day)}
+                    style={{ 
+                      width: "100%", 
+                      minHeight: "44px", 
+                      padding: "4px 2px", 
+                      fontSize: "10px", 
+                      display: "flex", 
+                      flexDirection: "column", 
+                      alignItems: "center", 
+                      justifyContent: "center",
+                      gap: "2px"
+                    }}
+                  >
+                    <span>{dayLabels[day]}</span>
+                    {isSelected && <i style={{ color: "var(--accent)", fontStyle: "normal", fontSize: "12px", lineHeight: "1" }}>•</i>}
+                  </button>
+                  <span 
+                    style={{ 
+                      fontSize: "9px", 
+                      color: isSelected ? "var(--accent)" : "var(--ink-faint)", 
+                      cursor: isSelected ? "pointer" : "default",
+                      textAlign: "center",
+                      minHeight: "22px",
+                      display: "flex",
+                      flexDirection: "column",
+                      justifyContent: "center",
+                      lineHeight: "1.2",
+                      width: "100%"
+                    }}
+                    onClick={() => {
+                      if (isSelected) {
+                        openTimeModalForDay(day);
+                      }
+                    }}
+                  >
+                    {isSelected ? (
+                      timeStr ? (
+                        <>
+                          <div style={{ fontWeight: 500, letterSpacing: "-0.3px" }}>{timeStr}</div>
+                          <div style={{ opacity: 0.75, fontSize: "8px" }}>{durationStr}</div>
+                        </>
+                      ) : (
+                        <span style={{ textDecoration: "underline", color: "var(--ink-soft)" }}>Đặt giờ</span>
+                      )
+                    ) : (
+                      "—"
+                    )}
+                  </span>
+                </div>
+              );
+            })}
           </div>
           <small>
             {draft.days.length
@@ -4034,48 +4252,42 @@ function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps
           </small>
           
           {draft.days.length > 0 && (
-            <div className="time-range-section" style={{ marginTop: "10px", padding: "10px", border: "1px solid var(--line)", borderRadius: "8px", background: "color-mix(in srgb, var(--paper) 50%, var(--bg))" }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px" }}>
-                <span style={{ fontSize: "12px", color: "var(--ink-soft)", display: "inline-flex", alignItems: "center", gap: "5px" }}>
+            <div className="time-range-section" style={{ marginTop: "12px", padding: "10px", border: "1px solid var(--line)", borderRadius: "8px", background: "color-mix(in srgb, var(--paper) 50%, var(--bg))" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                <span style={{ fontSize: "11px", fontWeight: "bold", color: "var(--ink-soft)", display: "inline-flex", alignItems: "center", gap: "5px" }}>
                   <Clock3 size={13} style={{ color: "var(--ink-faint)" }} />
-                  Giờ thực hiện:{" "}
-                  <strong>
-                    {draft.startTime && draft.endTime
-                      ? `${draft.startTime} - ${draft.endTime}`
-                      : "Chưa đặt"}
-                  </strong>
+                  Bảng giờ thực hiện theo ngày:
                 </span>
-                <div style={{ display: "flex", gap: "8px" }}>
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    style={{ padding: "3px 8px", fontSize: "9px", minHeight: "auto", fontFamily: "inherit" }}
-                    onClick={() => {
-                      setTempStartTime(draft.startTime ?? "");
-                      setTempEndTime(draft.endTime ?? "");
-                      setTimeError("");
-                      setShowTimeModal(true);
-                    }}
-                  >
-                    {draft.startTime && draft.endTime ? "Sửa giờ" : "Đặt giờ"}
-                  </button>
-                  {draft.startTime && draft.endTime && (
-                    <button
-                      type="button"
-                      style={{ padding: "3px 8px", fontSize: "9px", minHeight: "auto", border: "1px solid color-mix(in srgb, var(--red, #ef4444) 30%, var(--line))", borderRadius: "6px", background: "transparent", color: "var(--red, #ef4444)", cursor: "pointer", fontFamily: "inherit" }}
-                      onClick={() => {
-                        setDraft((current) => ({
-                          ...current,
-                          startTime: undefined,
-                          endTime: undefined,
-                        }));
-                        setTempStartTime("");
-                        setTempEndTime("");
-                      }}
-                    >
-                      Xóa giờ
-                    </button>
-                  )}
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                  {draft.days.map(d => {
+                    const dt = draft.dayTimes?.[d];
+                    return (
+                      <div 
+                        key={d} 
+                        onClick={() => openTimeModalForDay(d)}
+                        style={{ 
+                          fontSize: "11px", 
+                          padding: "4px 8px", 
+                          borderRadius: "6px", 
+                          border: "1px solid var(--line-strong)", 
+                          background: "var(--paper)", 
+                          cursor: "pointer",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "4px"
+                        }}
+                      >
+                        <strong>{dayLabels[d]}:</strong>{" "}
+                        {dt?.startTime && dt?.endTime ? (
+                          <span style={{ color: "var(--accent)", fontWeight: 500 }}>
+                            {dt.startTime} - {dt.endTime} ({getDurationText(dt.startTime, dt.endTime)})
+                          </span>
+                        ) : (
+                          <span style={{ color: "var(--ink-faint)", textDecoration: "underline" }}>Đặt giờ</span>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             </div>
@@ -4190,38 +4402,276 @@ function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps
 
       {showTimeModal && (
         <Modal onClose={() => setShowTimeModal(false)}>
-          <div className="time-picker-modal" style={{ padding: "20px", maxWidth: "320px" }}>
+          <div className="time-picker-modal" style={{ padding: "20px", maxWidth: "340px", width: "90vw" }}>
             <div className="modal-kicker">Cấu hình thời gian</div>
             <button className="modal-close" onClick={() => setShowTimeModal(false)} aria-label="Đóng">
               <X size={18} />
             </button>
-            <h3 style={{ marginTop: "15px", fontSize: "16px", color: "var(--ink)" }}>Đặt giờ thực hiện</h3>
+            <h3 style={{ marginTop: "15px", fontSize: "16px", color: "var(--ink)", fontFamily: "Fraunces, serif" }}>Đặt giờ theo ngày</h3>
             <p style={{ margin: "5px 0 15px 0", fontSize: "12px", color: "var(--ink-faint)", lineHeight: "1.4" }}>
-              Chọn khoảng thời gian bắt đầu và kết thúc (chỉ giờ và phút) để theo dõi và đồng bộ lịch.
+              Chọn thứ trong tuần để đặt giờ cụ thể (hỗ trợ các khung giờ khác nhau giữa các thứ).
             </p>
 
+            <div style={{ display: "flex", gap: "6px", marginBottom: "15px", overflowX: "auto", paddingBottom: "5px" }}>
+              {dayKeys.map((day) => {
+                const isSelected = draft.days.includes(day);
+                const isActive = activeModalDay === day;
+                const hasTime = !!tempDayTimes[day]?.startTime && !!tempDayTimes[day]?.endTime;
+                
+                return (
+                  <button
+                    key={day}
+                    type="button"
+                    style={{
+                      padding: "6px 8px",
+                      borderRadius: "6px",
+                      border: isActive ? "2px solid var(--accent)" : "1px solid var(--line)",
+                      background: isActive ? "var(--accent-soft)" : "var(--paper)",
+                      color: isActive ? "var(--accent)" : (isSelected ? "var(--ink)" : "var(--ink-faint)"),
+                      cursor: "pointer",
+                      fontSize: "11px",
+                      fontFamily: "inherit",
+                      fontWeight: isActive || isSelected ? 600 : 400,
+                      minWidth: "42px",
+                      textAlign: "center",
+                      flexShrink: 0
+                    }}
+                    onClick={() => {
+                      setActiveModalDay(day);
+                      setStartOpen(false);
+                      setEndOpen(false);
+                    }}
+                  >
+                    {dayLabels[day]}
+                    {hasTime && <span style={{ color: "var(--accent)", marginLeft: "2px" }}>•</span>}
+                  </button>
+                );
+              })}
+            </div>
+
             <div style={{ display: "grid", gap: "12px", marginBottom: "20px" }}>
-              <div>
-                <label style={{ display: "block", fontSize: "11px", fontWeight: "bold", marginBottom: "4px", color: "var(--ink)" }}>Giờ bắt đầu:</label>
-                <input
-                  type="time"
-                  required
-                  value={tempStartTime}
-                  onChange={(e) => setTempStartTime(e.target.value)}
-                  style={{ width: "100%", padding: "8px", border: "1px solid var(--line-strong)", borderRadius: "6px", backgroundColor: "var(--paper)", color: "var(--ink)", fontFamily: "inherit" }}
-                />
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <span style={{ fontSize: "12px", fontWeight: 600, color: "var(--ink)" }}>
+                  Thứ đang sửa: <span style={{ color: "var(--accent)" }}>{dayLabels[activeModalDay]}</span>
+                </span>
+                {!draft.days.includes(activeModalDay) && (
+                  <span style={{ fontSize: "10px", color: "var(--accent)", background: "var(--accent-soft)", padding: "2px 6px", borderRadius: "4px" }}>
+                    Tự động gán vào ngày khi chọn giờ
+                  </span>
+                )}
               </div>
 
-              <div>
-                <label style={{ display: "block", fontSize: "11px", fontWeight: "bold", marginBottom: "4px", color: "var(--ink)" }}>Giờ kết thúc:</label>
-                <input
-                  type="time"
-                  required
-                  value={tempEndTime}
-                  onChange={(e) => setTempEndTime(e.target.value)}
-                  style={{ width: "100%", padding: "8px", border: "1px solid var(--line-strong)", borderRadius: "6px", backgroundColor: "var(--paper)", color: "var(--ink)", fontFamily: "inherit" }}
-                />
+              <div style={{ display: "flex", gap: "10px", alignItems: "center", position: "relative" }}>
+                <div style={{ position: "relative", flex: 1 }}>
+                  <label style={{ display: "block", fontSize: "11px", fontWeight: "bold", marginBottom: "4px", color: "var(--ink-soft)" }}>Bắt đầu:</label>
+                  <button
+                    type="button"
+                    className={`custom-time-picker-button ${startOpen ? "active" : ""}`}
+                    onClick={() => {
+                      setStartOpen(!startOpen);
+                      setEndOpen(false);
+                    }}
+                    style={{
+                      width: "100%",
+                      padding: "8px",
+                      borderRadius: "6px",
+                      border: "1px solid var(--line-strong)",
+                      background: "var(--paper)",
+                      color: currentStart ? "var(--ink)" : "var(--ink-faint)",
+                      cursor: "pointer",
+                      textAlign: "center",
+                      fontSize: "14px",
+                      fontFamily: "inherit"
+                    }}
+                  >
+                    {currentStart || "--:--"}
+                  </button>
+                  
+                  {startOpen && (
+                    <>
+                      <div
+                        style={{ position: "fixed", inset: 0, zIndex: 999 }}
+                        onClick={() => setStartOpen(false)}
+                      />
+                      <div
+                        style={{
+                          position: "absolute",
+                          top: "100%",
+                          left: 0,
+                          right: 0,
+                          zIndex: 1000,
+                          background: "var(--paper)",
+                          border: "1px solid var(--line-strong)",
+                          borderRadius: "8px",
+                          boxShadow: "var(--shadow)",
+                          maxHeight: "180px",
+                          overflowY: "auto",
+                          marginTop: "4px",
+                          padding: "4px 0"
+                        }}
+                      >
+                        {startOptions.map((opt) => (
+                          <div
+                            key={opt}
+                            style={{
+                              padding: "8px 12px",
+                              fontSize: "13px",
+                              color: "var(--ink)",
+                              cursor: "pointer",
+                              backgroundColor: opt === currentStart ? "var(--accent-soft)" : "transparent"
+                            }}
+                            onClick={() => {
+                              let nextEnd = currentEnd;
+                              if (currentEnd) {
+                                const [sh, sm] = opt.split(":").map(Number);
+                                const [eh, em] = currentEnd.split(":").map(Number);
+                                if (eh * 60 + em <= sh * 60 + sm) {
+                                  const endMin = (sh * 60 + sm + 60) % 1440;
+                                  const ehNew = Math.floor(endMin / 60);
+                                  const emNew = endMin % 60;
+                                  nextEnd = `${ehNew.toString().padStart(2, '0')}:${emNew.toString().padStart(2, '0')}`;
+                                }
+                              } else {
+                                const [sh, sm] = opt.split(":").map(Number);
+                                const endMin = sh * 60 + sm + 60;
+                                if (endMin <= 1440) {
+                                  const ehNew = Math.floor(endMin / 60);
+                                  const emNew = endMin % 60;
+                                  nextEnd = ehNew === 24 && emNew === 0 ? "24:00" : `${ehNew.toString().padStart(2, '0')}:${emNew.toString().padStart(2, '0')}`;
+                                }
+                              }
+                              
+                              setTempDayTimes((prev) => ({
+                                ...prev,
+                                [activeModalDay]: {
+                                  startTime: opt,
+                                  endTime: nextEnd
+                                }
+                              }));
+                              setStartOpen(false);
+                            }}
+                            className="time-option-hover"
+                          >
+                            {opt}
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                <span style={{ color: "var(--ink-soft)", marginTop: "18px" }}>-</span>
+
+                <div style={{ position: "relative", flex: 1 }}>
+                  <label style={{ display: "block", fontSize: "11px", fontWeight: "bold", marginBottom: "4px", color: "var(--ink-soft)" }}>Kết thúc:</label>
+                  <button
+                    type="button"
+                    disabled={!currentStart}
+                    className={`custom-time-picker-button ${endOpen ? "active" : ""}`}
+                    onClick={() => {
+                      setEndOpen(!endOpen);
+                      setStartOpen(false);
+                    }}
+                    style={{
+                      width: "100%",
+                      padding: "8px",
+                      borderRadius: "6px",
+                      border: "1px solid var(--line-strong)",
+                      background: "var(--paper)",
+                      color: currentEnd ? "var(--ink)" : "var(--ink-faint)",
+                      cursor: currentStart ? "pointer" : "not-allowed",
+                      textAlign: "center",
+                      fontSize: "14px",
+                      opacity: currentStart ? 1 : 0.6,
+                      fontFamily: "inherit"
+                    }}
+                  >
+                    {currentEnd || "--:--"}
+                  </button>
+
+                  {endOpen && (
+                    <>
+                      <div
+                        style={{ position: "fixed", inset: 0, zIndex: 999 }}
+                        onClick={() => setEndOpen(false)}
+                      />
+                      <div
+                        style={{
+                          position: "absolute",
+                          top: "100%",
+                          left: 0,
+                          right: 0,
+                          zIndex: 1000,
+                          background: "var(--paper)",
+                          border: "1px solid var(--line-strong)",
+                          borderRadius: "8px",
+                          boxShadow: "var(--shadow)",
+                          maxHeight: "180px",
+                          overflowY: "auto",
+                          marginTop: "4px",
+                          padding: "4px 0"
+                        }}
+                      >
+                        {endOptions.map((opt) => (
+                          <div
+                            key={opt.value}
+                            style={{
+                              padding: "8px 12px",
+                              fontSize: "13px",
+                              color: "var(--ink)",
+                              cursor: "pointer",
+                              backgroundColor: opt.value === currentEnd ? "var(--accent-soft)" : "transparent"
+                            }}
+                            onClick={() => {
+                              setTempDayTimes((prev) => ({
+                                ...prev,
+                                [activeModalDay]: {
+                                  ...prev[activeModalDay],
+                                  endTime: opt.value
+                                }
+                              }));
+                              setEndOpen(false);
+                            }}
+                            className="time-option-hover"
+                          >
+                            {opt.label}
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
               </div>
+
+              {currentStart && currentEnd && (
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 10px", background: "var(--bg-soft)", borderRadius: "6px", fontSize: "11px" }}>
+                  <span style={{ color: "var(--accent)", fontWeight: 600 }}>
+                    Thời lượng: {getDurationText(currentStart, currentEnd)}
+                  </span>
+                  <button
+                    type="button"
+                    style={{
+                      border: "none",
+                      background: "transparent",
+                      color: "var(--red, #ef4444)",
+                      cursor: "pointer",
+                      textDecoration: "underline",
+                      fontFamily: "inherit"
+                    }}
+                    onClick={() => {
+                      setTempDayTimes((prev) => {
+                        const copy = { ...prev };
+                        delete copy[activeModalDay];
+                        return copy;
+                      });
+                      setStartOpen(false);
+                      setEndOpen(false);
+                    }}
+                  >
+                    Xóa giờ ngày này
+                  </button>
+                </div>
+              )}
             </div>
 
             {timeError && (

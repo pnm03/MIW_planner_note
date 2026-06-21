@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { supabase } from "./supabaseClient";
+import logoImg from "./logo.jpg";
 
 interface AuthPageProps {
   onBack: () => void;
@@ -73,6 +74,10 @@ export const AuthPage: React.FC<AuthPageProps> = ({
         <button className="auth-back-btn" onClick={onBack} title="Quay lại">
           ← Quay lại miw planner
         </button>
+
+        <div style={{ display: "flex", justifyContent: "center", marginTop: "20px", marginBottom: "10px" }}>
+          <img src={logoImg} alt="logo" style={{ width: "56px", height: "56px", borderRadius: "12px", objectFit: "cover" }} />
+        </div>
 
         <h2 className="auth-title">
           {mode === "login" && "Chào mừng trở lại"}
