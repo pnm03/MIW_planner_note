@@ -36,6 +36,7 @@ import {
   Target,
   Share2,
   Star,
+  Volume2,
 } from "lucide-react";
 import {
   type ArchivedWeek,
@@ -219,29 +220,93 @@ const projectIcons = [
   "GO",
 ];
 
-const playReminderSound = () => {
+const playReminderSound = (soundId?: string) => {
   const AudioContextClass =
     window.AudioContext ||
     (window as typeof window & { webkitAudioContext?: typeof AudioContext })
       .webkitAudioContext;
   if (!AudioContextClass) return;
   const context = new AudioContextClass();
-  const oscillator = context.createOscillator();
-  const gain = context.createGain();
-  oscillator.type = "sine";
-  oscillator.frequency.setValueAtTime(740, context.currentTime);
-  oscillator.frequency.exponentialRampToValueAtTime(
-    980,
-    context.currentTime + 0.14,
-  );
-  gain.gain.setValueAtTime(0.0001, context.currentTime);
-  gain.gain.exponentialRampToValueAtTime(0.18, context.currentTime + 0.02);
-  gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.35);
-  oscillator.connect(gain);
-  gain.connect(context.destination);
-  oscillator.start();
-  oscillator.stop(context.currentTime + 0.36);
-  window.setTimeout(() => void context.close(), 500);
+  const now = context.currentTime;
+
+  if (soundId === "chime") {
+    // Elegant bell sound
+    const osc = context.createOscillator();
+    const osc2 = context.createOscillator();
+    const gain = context.createGain();
+    
+    osc.type = "triangle";
+    osc.frequency.setValueAtTime(523.25, now); // C5
+    osc.frequency.exponentialRampToValueAtTime(659.25, now + 0.1); // E5
+    
+    osc2.type = "sine";
+    osc2.frequency.setValueAtTime(783.99, now); // G5
+    
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.15, now + 0.05);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.8);
+    
+    osc.connect(gain);
+    osc2.connect(gain);
+    gain.connect(context.destination);
+    
+    osc.start(now);
+    osc2.start(now);
+    osc.stop(now + 0.8);
+    osc2.stop(now + 0.8);
+    window.setTimeout(() => void context.close(), 1000);
+  } else if (soundId === "double") {
+    // Two quick beeps
+    const playBeep = (timeOffset: number) => {
+      const osc = context.createOscillator();
+      const gain = context.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(880, now + timeOffset); // A5
+      gain.gain.setValueAtTime(0.0001, now + timeOffset);
+      gain.gain.exponentialRampToValueAtTime(0.12, now + timeOffset + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + timeOffset + 0.12);
+      osc.connect(gain);
+      gain.connect(context.destination);
+      osc.start(now + timeOffset);
+      osc.stop(now + timeOffset + 0.13);
+    };
+    playBeep(0);
+    playBeep(0.18);
+    window.setTimeout(() => void context.close(), 800);
+  } else if (soundId === "retro") {
+    // Retro arcade rising sound
+    const osc = context.createOscillator();
+    const gain = context.createGain();
+    osc.type = "sawtooth";
+    osc.frequency.setValueAtTime(300, now);
+    osc.frequency.linearRampToValueAtTime(1200, now + 0.3);
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.08, now + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.3);
+    osc.connect(gain);
+    gain.connect(context.destination);
+    osc.start(now);
+    osc.stop(now + 0.31);
+    window.setTimeout(() => void context.close(), 600);
+  } else {
+    // Default beep
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+    oscillator.type = "sine";
+    oscillator.frequency.setValueAtTime(740, now);
+    oscillator.frequency.exponentialRampToValueAtTime(
+      980,
+      now + 0.14,
+    );
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.18, now + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.35);
+    oscillator.connect(gain);
+    gain.connect(context.destination);
+    oscillator.start(now);
+    oscillator.stop(now + 0.36);
+    window.setTimeout(() => void context.close(), 500);
+  }
 };
 
 const formatDateTimeLabel = (date: string, time?: string) => {
@@ -735,7 +800,7 @@ function App() {
               const diff = now.getTime() - dueAt.getTime();
               if (diff >= 0 && diff < 60_000) {
                 notifiedTasks.current.set(task.id, currentDeadlineKey);
-                playReminderSound();
+                playReminderSound(task.reminderSound);
                 setToast(`Đến giờ: ${task.title || "Công việc chưa đặt tên"}`);
                 
                 if (Notification.permission === "granted") {
@@ -786,7 +851,7 @@ function App() {
 
                     const remainingMin = Math.round((startTimeMs - now.getTime()) / 60000);
 
-                    playReminderSound();
+                    playReminderSound(task.reminderSound);
 
                     if (Notification.permission === "granted") {
                       const notification = new Notification(`Nhắc nhở công việc: ${task.title || "Công việc chưa đặt tên"}`, {
@@ -854,7 +919,7 @@ function App() {
                   remainingMin = Math.round((startTimeMs - now.getTime()) / 60000);
                 }
 
-                playReminderSound();
+                playReminderSound(freshTask.reminderSound);
 
                 if (Notification.permission === "granted") {
                   const notification = new Notification(`Báo thức lại: ${freshTask.title || "Công việc chưa đặt tên"}`, {
@@ -4188,8 +4253,9 @@ function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps
   
   const [modalReminderEnabled, setModalReminderEnabled] = useState(false);
   const [modalReminderOffsets, setModalReminderOffsets] = useState<number[]>([]);
-  const [customReminderVal, setCustomReminderVal] = useState("");
-  const [customReminderUnit, setCustomReminderUnit] = useState<"m" | "h">("m");
+  const [customHourVal, setCustomHourVal] = useState("");
+  const [customMinVal, setCustomMinVal] = useState("");
+  const [modalReminderSound, setModalReminderSound] = useState<string>("default");
   const [showConfirmCloseModal, setShowConfirmCloseModal] = useState(false);
 
   const startOptions = useMemo(() => {
@@ -4262,8 +4328,9 @@ function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps
     setEndOpen(false);
     setModalReminderEnabled(draft.reminderEnabled ?? false);
     setModalReminderOffsets(draft.reminderOffsets ?? []);
-    setCustomReminderVal("");
-    setCustomReminderUnit("m");
+    setCustomHourVal("");
+    setCustomMinVal("");
+    setModalReminderSound(draft.reminderSound ?? "default");
     setShowTimeModal(true);
   };
 
@@ -4310,12 +4377,7 @@ function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps
       });
     }
 
-    // Delete times for any day NOT in modalSelectedDays
-    dayKeys.forEach(d => {
-      if (!modalSelectedDays.includes(d)) {
-        delete updatedDayTimes[d];
-      }
-    });
+
 
     for (const d of dayKeys) {
       const dt = updatedDayTimes[d];
@@ -4386,9 +4448,23 @@ function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps
     }
 
     setDraft((current) => {
+      // Start from the CURRENT draft's dayTimes to preserve unselected days
+      const mergedDayTimes: Partial<Record<DayKey, { startTime?: string; endTime?: string }>> = { ...(current.dayTimes ?? {}) };
+
+      // Only apply changes for days that were selected in the modal
+      modalSelectedDays.forEach(d => {
+        const dt = updatedDayTimes[d];
+        if (dt?.startTime && dt?.endTime) {
+          mergedDayTimes[d] = { startTime: dt.startTime, endTime: dt.endTime };
+        } else {
+          delete mergedDayTimes[d];
+        }
+      });
+
+      // Clean up: only keep entries with both start and end times
       const cleanedDayTimes: Partial<Record<DayKey, { startTime?: string; endTime?: string }>> = {};
       dayKeys.forEach(d => {
-        const dt = updatedDayTimes[d];
+        const dt = mergedDayTimes[d];
         if (dt?.startTime && dt?.endTime) {
           cleanedDayTimes[d] = { startTime: dt.startTime, endTime: dt.endTime };
         }
@@ -4398,14 +4474,17 @@ function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps
       const fallbackStart = firstActiveDay ? cleanedDayTimes[firstActiveDay]?.startTime : undefined;
       const fallbackEnd = firstActiveDay ? cleanedDayTimes[firstActiveDay]?.endTime : undefined;
 
+      const newDays = Array.from(new Set([...current.days, ...modalSelectedDays]));
+
       return {
         ...current,
-        days: modalSelectedDays,
+        days: newDays,
         dayTimes: cleanedDayTimes,
         startTime: fallbackStart,
         endTime: fallbackEnd,
         reminderEnabled: modalReminderEnabled,
-        reminderOffsets: modalReminderOffsets
+        reminderOffsets: modalReminderOffsets,
+        reminderSound: modalReminderSound
       };
     });
 
@@ -4547,7 +4626,7 @@ function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps
                 ? "Đang bật nhắc bằng âm thanh"
                 : "Bật nhắc bằng âm thanh"}
             </button>
-            <button className="sound-preview" onClick={playReminderSound}>
+            <button className="sound-preview" onClick={() => playReminderSound(draft.reminderSound)}>
               Nghe thử
             </button>
           </div>
@@ -5156,85 +5235,154 @@ function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps
               <div style={{ borderTop: "1px solid var(--line)", margin: "14px 0 10px 0" }} />
               
               <div style={{ marginBottom: "16px", opacity: isNoDaySelected ? 0.5 : 1 }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" }}>
-                  <label style={{ fontSize: "12px", fontWeight: "bold", color: "var(--ink)", display: "flex", alignItems: "center", gap: "6px", cursor: isNoDaySelected ? "not-allowed" : "pointer" }}>
-                    <input
-                      type="checkbox"
-                      checked={modalReminderEnabled}
-                      disabled={isNoDaySelected}
-                      onChange={(e) => {
-                        setModalReminderEnabled(e.target.checked);
-                        if (e.target.checked && modalReminderOffsets.length === 0) {
-                          setModalReminderOffsets([5]); // Default to 5 minutes
-                        }
+                <div
+                  className="reminder-card"
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    padding: "10px 14px",
+                    borderRadius: "10px",
+                    border: `1.5px solid ${modalReminderEnabled ? "var(--accent)" : "var(--line)"}`,
+                    background: modalReminderEnabled ? "var(--accent-soft)" : "var(--paper)",
+                    cursor: isNoDaySelected ? "not-allowed" : "pointer",
+                    transition: "all 0.25s ease",
+                    marginBottom: "8px",
+                    userSelect: "none"
+                  }}
+                  onClick={() => {
+                    if (isNoDaySelected) return;
+                    const next = !modalReminderEnabled;
+                    setModalReminderEnabled(next);
+                    if (next && modalReminderOffsets.length === 0) {
+                      setModalReminderOffsets([5]);
+                    }
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                    <div style={{
+                      width: 32, height: 32,
+                      borderRadius: "50%",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      background: modalReminderEnabled ? "var(--accent)" : "var(--line)",
+                      color: modalReminderEnabled ? "#fff" : "var(--ink-faint)",
+                      transition: "all 0.25s ease",
+                      flexShrink: 0
+                    }}>
+                      {modalReminderEnabled ? <BellRing size={16} /> : <Bell size={16} />}
+                    </div>
+                    <div>
+                      <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--ink)", fontFamily: "Fraunces, serif" }}>
+                        Nhắc nhở trước giờ bắt đầu
+                      </div>
+                      <div style={{ fontSize: "10px", color: "var(--ink-faint)", marginTop: "2px" }}>
+                        {modalReminderEnabled ? "Đang bật · sẽ thông báo đúng giờ" : "Nhấn để bật chế độ nhắc nhở"}
+                      </div>
+                    </div>
+                  </div>
+                  {/* Toggle switch */}
+                  <div
+                    className="toggle-track"
+                    style={{
+                      width: 42, height: 24,
+                      borderRadius: 12,
+                      background: modalReminderEnabled ? "var(--accent)" : "var(--line-strong)",
+                      position: "relative",
+                      transition: "background 0.25s ease",
+                      flexShrink: 0
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: 18, height: 18,
+                        borderRadius: "50%",
+                        background: "#fff",
+                        boxShadow: "0 1px 3px rgba(0,0,0,0.18)",
+                        position: "absolute",
+                        top: 3,
+                        left: modalReminderEnabled ? 21 : 3,
+                        transition: "left 0.25s ease"
                       }}
-                      style={{ accentColor: "var(--accent)" }}
                     />
-                    Bật nhắc nhở trước giờ bắt đầu
-                  </label>
+                  </div>
                 </div>
 
                 {modalReminderEnabled && !isNoDaySelected && (
-                  <div style={{ display: "grid", gap: "10px", padding: "8px", background: "var(--accent-soft)", borderRadius: "6px" }}>
+                  <div style={{ display: "grid", gap: "12px", padding: "14px", background: "var(--accent-soft)", borderRadius: "8px", border: "1px solid var(--line)", boxShadow: "var(--shadow-sm)" }}>
                     {/* Custom input for reminder at the top */}
-                    <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
-                      <span style={{ fontSize: "11px", color: "var(--ink-soft)" }}>Tùy chỉnh:</span>
-                      <input
-                        type="number"
-                        min="1"
-                        placeholder="Số lượng"
-                        value={customReminderVal}
-                        onChange={(e) => setCustomReminderVal(e.target.value)}
-                        style={{
-                          width: "70px",
-                          padding: "3px 6px",
-                          border: "1px solid var(--line-strong)",
-                          borderRadius: "4px",
-                          fontSize: "11px",
-                          background: "var(--paper)",
-                          color: "var(--ink)"
-                        }}
-                      />
-                      <select
-                        value={customReminderUnit}
-                        onChange={(e) => setCustomReminderUnit(e.target.value as "m" | "h")}
-                        style={{
-                          padding: "3px 6px",
-                          border: "1px solid var(--line-strong)",
-                          borderRadius: "4px",
-                          fontSize: "11px",
-                          background: "var(--paper)",
-                          color: "var(--ink)"
-                        }}
-                      >
-                        <option value="m">Phút</option>
-                        <option value="h">Giờ</option>
-                      </select>
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", marginBottom: "4px" }}>
+                      <span style={{ fontSize: "11px", fontWeight: "bold", color: "var(--ink-soft)" }}>Tùy chỉnh nhắc trước:</span>
+                      <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                        <input
+                          type="number"
+                          min="0"
+                          max="24"
+                          placeholder="0"
+                          value={customHourVal}
+                          onChange={(e) => setCustomHourVal(e.target.value)}
+                          style={{
+                            width: "50px",
+                            padding: "5px 8px",
+                            border: "1px solid var(--line-strong)",
+                            borderRadius: "6px",
+                            fontSize: "11px",
+                            background: "var(--paper)",
+                            color: "var(--ink)",
+                            textAlign: "center"
+                          }}
+                        />
+                        <span style={{ fontSize: "11px", color: "var(--ink-soft)" }}>giờ</span>
+                        
+                        <input
+                          type="number"
+                          min="0"
+                          max="59"
+                          placeholder="0"
+                          value={customMinVal}
+                          onChange={(e) => setCustomMinVal(e.target.value)}
+                          style={{
+                            width: "50px",
+                            padding: "5px 8px",
+                            border: "1px solid var(--line-strong)",
+                            borderRadius: "6px",
+                            fontSize: "11px",
+                            background: "var(--paper)",
+                            color: "var(--ink)",
+                            textAlign: "center"
+                          }}
+                        />
+                        <span style={{ fontSize: "11px", color: "var(--ink-soft)" }}>phút</span>
+                      </div>
+                      
                       <button
                         type="button"
-                        className="secondary-button"
-                        style={{ padding: "3px 8px", fontSize: "10px", height: "auto" }}
+                        className="add-reminder-btn"
                         onClick={() => {
-                          const val = parseInt(customReminderVal, 10);
-                          if (!val || val <= 0) return;
-                          const minutes = customReminderUnit === "h" ? val * 60 : val;
-                          if (minutes > 1440) {
-                            alert("Thời gian nhắc nhở tối đa là 1 ngày (1440 phút)!");
+                          const h = parseInt(customHourVal, 10) || 0;
+                          const m = parseInt(customMinVal, 10) || 0;
+                          const totalMinutes = h * 60 + m;
+                          if (totalMinutes <= 0) {
+                            alert("Vui lòng nhập thời gian nhắc nhở lớn hơn 0!");
                             return;
                           }
-                          if (modalReminderOffsets.includes(minutes)) {
-                            alert("Thời gian nhắc nhở này đã tồn tại!");
+                          if (totalMinutes > 1440) {
+                            alert("Thời gian nhắc nhở tối đa là 1 ngày (24 giờ)!");
+                            return;
+                          }
+                          if (modalReminderOffsets.includes(totalMinutes)) {
+                            alert("Mốc nhắc nhở này đã tồn tại!");
                             return;
                           }
                           if (modalReminderOffsets.length >= 3) {
                             alert("Bạn chỉ được chọn tối đa 3 mốc thời gian nhắc nhở!");
                             return;
                           }
-                          setModalReminderOffsets(prev => [...prev, minutes].sort((a, b) => a - b));
-                          setCustomReminderVal("");
+                          setModalReminderOffsets(prev => [...prev, totalMinutes].sort((a, b) => a - b));
+                          setCustomHourVal("");
+                          setCustomMinVal("");
                         }}
                       >
-                        Thêm
+                        <Plus size={12} /> Thêm
                       </button>
                     </div>
 
@@ -5314,6 +5462,35 @@ function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps
                           ))}
                       </div>
                     )}
+
+                    {/* Sound Selector */}
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", marginTop: "4px", padding: "10px 0 4px 0", borderTop: "1px dashed var(--line)" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "6px", flex: "1 1 auto" }}>
+                        <Volume2 size={14} style={{ color: "var(--accent)", flexShrink: 0 }} />
+                        <span style={{ fontSize: "11px", fontWeight: 700, color: "var(--ink-soft)", whiteSpace: "nowrap" }}>Âm thanh:</span>
+                        <select
+                          value={modalReminderSound}
+                          onChange={(e) => {
+                            const snd = e.target.value;
+                            setModalReminderSound(snd);
+                            playReminderSound(snd);
+                          }}
+                          className="sound-select"
+                        >
+                          <option value="default">Mặc định (Beep)</option>
+                          <option value="chime">Chuông ngân (Chime)</option>
+                          <option value="double">Nhấp đúp (Double Beep)</option>
+                          <option value="retro">Cổ điển (Retro)</option>
+                        </select>
+                      </div>
+                      <button
+                        type="button"
+                        className="sound-preview-btn"
+                        onClick={() => playReminderSound(modalReminderSound)}
+                      >
+                        <Volume2 size={12} /> Nghe thử
+                      </button>
+                    </div>
 
                     <div style={{ fontSize: "10px", color: "var(--ink-soft)", fontStyle: "italic" }}>
                       Đã chọn {modalReminderOffsets.length}/3 mốc nhắc nhở (tối đa 1 ngày trước giờ bắt đầu).

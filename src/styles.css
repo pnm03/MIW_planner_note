@@ -1645,6 +1645,76 @@ button:disabled {
   flex: 0 0 auto;
 }
 
+/* --- Reminder modal redesign --- */
+.add-reminder-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 14px;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: inherit;
+  border-radius: 20px;
+  height: auto;
+  text-transform: none;
+  background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent), #000 15%));
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.add-reminder-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 3px 10px rgba(0,0,0,0.2);
+}
+.add-reminder-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+}
+
+.sound-select {
+  padding: 5px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  font-size: 11px;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: inherit;
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.2s ease;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.sound-select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.sound-preview-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 12px;
+  font-size: 10px;
+  font-weight: 600;
+  font-family: inherit;
+  border-radius: 20px;
+  border: 1.5px solid var(--accent);
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+  height: auto;
+  text-transform: none;
+}
+.sound-preview-btn:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
 .editor-days {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
