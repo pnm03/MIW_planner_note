@@ -4669,3 +4669,106 @@ button:disabled {
   border-color: var(--accent) !important;
   box-shadow: 0 0 0 2px var(--accent-soft) !important;
 }
+
+/* Redesigned Time Picker Modal Styles */
+.time-picker-day-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 5px;
+  margin-bottom: 16px;
+}
+
+.time-picker-day-btn-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.time-picker-day-btn {
+  width: 100%;
+  padding: 8px 0;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--paper);
+  color: var(--ink-faint);
+  cursor: pointer;
+  font-size: 11px;
+  font-family: inherit;
+  font-weight: 500;
+  text-align: center;
+  transition: all 0.15s ease-in-out;
+}
+
+.time-picker-day-btn:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.time-picker-day-btn.selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.time-picker-day-btn.active {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--paper);
+  font-weight: 600;
+}
+
+.time-picker-day-time-label {
+  font-size: 8px;
+  font-family: "JetBrains Mono", monospace;
+  color: var(--ink-faint);
+  text-align: center;
+  min-height: 24px;
+  line-height: 1.2;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  align-items: center;
+  transition: color 0.15s ease-in-out;
+}
+
+.time-picker-day-btn-wrapper:hover .time-picker-day-time-label,
+.time-picker-day-btn-wrapper.selected .time-picker-day-time-label {
+  color: var(--accent);
+}
+
+.time-picker-day-btn-wrapper.active .time-picker-day-time-label {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.time-picker-input {
+  width: 100%;
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--line-strong);
+  background: var(--field);
+  color: var(--ink);
+  text-align: center;
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.time-picker-input:hover {
+  border-color: var(--accent);
+}
+
+.time-picker-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent);
+}
+
+.time-picker-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: var(--paper);
+}
+

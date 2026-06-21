@@ -4406,55 +4406,69 @@ function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps
 
       {showTimeModal && (
         <Modal onClose={() => setShowTimeModal(false)}>
-          <div className="time-picker-modal" style={{ padding: "20px", maxWidth: "340px", width: "90vw" }}>
-            <div className="modal-kicker">Cấu hình thời gian</div>
-            <button className="modal-close" onClick={() => setShowTimeModal(false)} aria-label="Đóng">
-              <X size={18} />
-            </button>
-            <h3 style={{ marginTop: "15px", fontSize: "16px", color: "var(--ink)", fontFamily: "Fraunces, serif" }}>Đặt giờ theo ngày</h3>
-            <p style={{ margin: "5px 0 15px 0", fontSize: "12px", color: "var(--ink-faint)", lineHeight: "1.4" }}>
+          <div className="time-picker-modal" style={{ padding: "24px 20px 20px", maxWidth: "340px", width: "90vw", position: "relative" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px", borderBottom: "1px solid var(--line)", paddingBottom: "10px" }}>
+              <div className="modal-kicker" style={{ margin: 0 }}>Cấu hình thời gian</div>
+              <button
+                className="modal-close"
+                onClick={() => setShowTimeModal(false)}
+                aria-label="Đóng"
+                style={{ top: "10px", right: "10px", width: "28px", height: "28px" }}
+              >
+                <X size={16} />
+              </button>
+            </div>
+            
+            <h3 style={{ marginTop: "8px", fontSize: "16px", color: "var(--ink)", fontFamily: "Fraunces, serif" }}>Đặt giờ theo ngày</h3>
+            <p style={{ margin: "4px 0 16px 0", fontSize: "12px", color: "var(--ink-faint)", lineHeight: "1.4" }}>
               Chọn thứ trong tuần để đặt giờ cụ thể (hỗ trợ các khung giờ khác nhau giữa các thứ).
             </p>
 
-            <div style={{ display: "flex", gap: "6px", marginBottom: "15px", overflowX: "auto", paddingBottom: "5px" }}>
+            <div className="time-picker-day-grid">
               {dayKeys.map((day) => {
                 const isSelected = draft.days.includes(day);
                 const isActive = activeModalDay === day;
-                const hasTime = !!tempDayTimes[day]?.startTime && !!tempDayTimes[day]?.endTime;
+                const dt = tempDayTimes[day];
+                const hasTime = !!dt?.startTime && !!dt?.endTime;
                 
                 return (
-                  <button
+                  <div
                     key={day}
-                    type="button"
-                    style={{
-                      padding: "6px 8px",
-                      borderRadius: "6px",
-                      border: isActive ? "2px solid var(--accent)" : "1px solid var(--line)",
-                      background: isActive ? "var(--accent-soft)" : "var(--paper)",
-                      color: isActive ? "var(--accent)" : (isSelected ? "var(--ink)" : "var(--ink-faint)"),
-                      cursor: "pointer",
-                      fontSize: "11px",
-                      fontFamily: "inherit",
-                      fontWeight: isActive || isSelected ? 600 : 400,
-                      minWidth: "42px",
-                      textAlign: "center",
-                      flexShrink: 0
-                    }}
-                    onClick={() => {
-                      setActiveModalDay(day);
-                      const dt = tempDayTimes[day] || {};
-                      setTypedStart(dt.startTime ?? "");
-                      setTypedEnd(dt.endTime ?? "");
-                      setStartOpen(false);
-                      setEndOpen(false);
-                    }}
+                    className={`time-picker-day-btn-wrapper${isActive ? " active" : ""}${isSelected && !isActive ? " selected" : ""}`}
                   >
-                    {dayLabels[day]}
-                    {hasTime && <span style={{ color: "var(--accent)", marginLeft: "2px" }}>•</span>}
-                  </button>
+                    <button
+                      key={day}
+                      type="button"
+                      className={`time-picker-day-btn${isActive ? " active" : ""}${isSelected && !isActive ? " selected" : ""}`}
+                      onClick={() => {
+                        setActiveModalDay(day);
+                        const dayTime = tempDayTimes[day] || {};
+                        setTypedStart(dayTime.startTime ?? "");
+                        setTypedEnd(dayTime.endTime ?? "");
+                        setStartOpen(false);
+                        setEndOpen(false);
+                      }}
+                    >
+                      {dayLabels[day]}
+                    </button>
+                    
+                    <div className="time-picker-day-time-label">
+                      {hasTime ? (
+                        <>
+                          <div>{dt.startTime}</div>
+                          <div style={{ fontSize: "7px", opacity: 0.6, margin: "-2px 0" }}>-</div>
+                          <div>{dt.endTime}</div>
+                        </>
+                      ) : (
+                        <span style={{ opacity: 0.25 }}>—</span>
+                      )}
+                    </div>
+                  </div>
                 );
               })}
             </div>
+
+            <div style={{ borderTop: "1px solid var(--line)", margin: "8px 0 14px 0" }} />
 
             <div style={{ display: "grid", gap: "12px", marginBottom: "20px" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -4463,18 +4477,19 @@ function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps
                 </span>
                 {!draft.days.includes(activeModalDay) && (
                   <span style={{ fontSize: "10px", color: "var(--accent)", background: "var(--accent-soft)", padding: "2px 6px", borderRadius: "4px" }}>
-                    Tự động gán vào ngày khi chọn giờ
+                    Tự động gán
                   </span>
                 )}
               </div>
 
-              <div style={{ display: "flex", gap: "10px", alignItems: "center", position: "relative" }}>
-                <div style={{ position: "relative", flex: 1 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 14px 1fr", gap: "8px", alignItems: "end", position: "relative" }}>
+                <div style={{ position: "relative" }}>
                   <label style={{ display: "block", fontSize: "11px", fontWeight: "bold", marginBottom: "4px", color: "var(--ink-soft)" }}>Bắt đầu:</label>
                   <input
                     type="text"
                     value={typedStart}
                     placeholder="00:00"
+                    className="time-picker-input"
                     onFocus={() => {
                       setStartOpen(true);
                       setEndOpen(false);
@@ -4493,17 +4508,6 @@ function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps
                           }
                         }));
                       }
-                    }}
-                    style={{
-                      width: "100%",
-                      padding: "8px",
-                      borderRadius: "6px",
-                      border: "1px solid var(--line-strong)",
-                      background: "var(--paper)",
-                      color: "var(--ink)",
-                      textAlign: "center",
-                      fontSize: "14px",
-                      fontFamily: "inherit"
                     }}
                   />
                   
@@ -4582,15 +4586,18 @@ function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps
                   )}
                 </div>
 
-                <span style={{ color: "var(--ink-soft)", marginTop: "18px" }}>-</span>
+                <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: "38px", color: "var(--ink-soft)", fontSize: "16px", fontWeight: 500 }}>
+                  –
+                </div>
 
-                <div style={{ position: "relative", flex: 1 }}>
+                <div style={{ position: "relative" }}>
                   <label style={{ display: "block", fontSize: "11px", fontWeight: "bold", marginBottom: "4px", color: "var(--ink-soft)" }}>Kết thúc:</label>
                   <input
                     type="text"
                     value={typedEnd}
                     placeholder="00:00"
                     disabled={!currentStart}
+                    className="time-picker-input"
                     onFocus={() => {
                       setEndOpen(true);
                       setStartOpen(false);
@@ -4609,18 +4616,6 @@ function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps
                           }
                         }));
                       }
-                    }}
-                    style={{
-                      width: "100%",
-                      padding: "8px",
-                      borderRadius: "6px",
-                      border: "1px solid var(--line-strong)",
-                      background: "var(--paper)",
-                      color: "var(--ink)",
-                      textAlign: "center",
-                      fontSize: "14px",
-                      opacity: currentStart ? 1 : 0.6,
-                      fontFamily: "inherit"
                     }}
                   />
 
@@ -4680,14 +4675,18 @@ function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps
               </div>
 
               {((typedStart && typedEnd) || (currentStart && currentEnd)) && (
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 10px", background: "var(--bg-soft)", borderRadius: "6px", fontSize: "11px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 10px", background: "var(--accent-soft)", borderRadius: "6px", fontSize: "11px" }}>
                   <span style={{ color: "var(--accent)", fontWeight: 600 }}>
-                    Thời lượng: {(() => {
+                    {(() => {
                       let startFormat = typedStart.trim();
                       let endFormat = typedEnd.trim();
                       if (/^[0-9]:[0-5][0-9]$/.test(startFormat)) startFormat = "0" + startFormat;
                       if (/^[0-9]:[0-5][0-9]$/.test(endFormat)) endFormat = "0" + endFormat;
-                      return getDurationText(startFormat, endFormat) || "—";
+                      const duration = getDurationText(startFormat, endFormat);
+                      if (duration) {
+                        return `${startFormat} - ${endFormat} (${duration})`;
+                      }
+                      return "—";
                     })()}
                   </span>
                   <button
@@ -4695,10 +4694,12 @@ function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps
                     style={{
                       border: "none",
                       background: "transparent",
-                      color: "var(--red, #ef4444)",
+                      color: "var(--accent)",
                       cursor: "pointer",
                       textDecoration: "underline",
-                      fontFamily: "inherit"
+                      fontFamily: "inherit",
+                      fontSize: "11px",
+                      fontWeight: 500
                     }}
                     onClick={() => {
                       setTempDayTimes((prev) => {
