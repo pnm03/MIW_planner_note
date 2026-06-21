@@ -93,14 +93,21 @@ const showReminderPopup = (info) => {
     existingContainer.remove();
   }
 
-  // 3. Create container
+  // 3. Create container (Centered blurred backdrop overlay)
   const container = document.createElement("div");
   container.id = "miw-planner-reminder-container";
   container.style.position = "fixed";
-  container.style.top = "24px";
-  container.style.right = "24px";
+  container.style.inset = "0";
   container.style.zIndex = "999999999";
+  container.style.display = "flex";
+  container.style.alignItems = "center";
+  container.style.justifyContent = "center";
+  container.style.backgroundColor = "rgba(10, 10, 10, 0.45)";
+  container.style.backdropFilter = "blur(6px)";
+  container.style.webkitBackdropFilter = "blur(6px)";
   container.style.pointerEvents = "auto";
+  container.style.opacity = "0";
+  container.style.transition = "opacity 0.3s ease";
 
   // 4. Attach Shadow DOM
   const shadowRoot = container.attachShadow({ mode: "open" });
@@ -109,125 +116,125 @@ const showReminderPopup = (info) => {
   const style = document.createElement("style");
   style.textContent = `
     .modal-card {
-      width: 310px;
-      background: rgba(255, 255, 255, 0.85);
-      backdrop-filter: blur(16px);
-      -webkit-backdrop-filter: blur(16px);
-      border: 1px solid rgba(255, 255, 255, 0.4);
-      border-radius: 16px;
-      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15), 0 1px 3px rgba(0, 0, 0, 0.05);
-      padding: 20px;
+      width: 500px;
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      border: 1px solid rgba(255, 255, 255, 0.6);
+      border-radius: 20px;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.2), 0 1px 4px rgba(0, 0, 0, 0.05);
+      padding: 32px;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
       color: #1c1c1e;
       display: flex;
       flex-direction: column;
-      gap: 14px;
-      transform: translateY(-30px);
+      gap: 20px;
+      transform: scale(0.95);
       opacity: 0;
-      transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+      transition: all 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
     }
     .modal-card.show {
-      transform: translateY(0);
+      transform: scale(1);
       opacity: 1;
     }
     .header-row {
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: 16px;
     }
     .icon-wrapper {
-      width: 36px;
-      height: 36px;
+      width: 52px;
+      height: 52px;
       border-radius: 50%;
       background: #ff5722;
       color: #ffffff;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 16px;
+      font-size: 24px;
       flex-shrink: 0;
-      box-shadow: 0 2px 6px rgba(255, 87, 34, 0.3);
+      box-shadow: 0 4px 12px rgba(255, 87, 34, 0.3);
     }
     .title-col {
       display: flex;
       flex-direction: column;
-      gap: 1px;
+      gap: 2px;
     }
     .title-main {
       font-weight: 800;
-      font-size: 13px;
+      font-size: 16px;
       color: #ff5722;
       text-transform: uppercase;
-      letter-spacing: 0.8px;
+      letter-spacing: 1px;
     }
     .title-sub {
       font-weight: 500;
-      font-size: 10px;
+      font-size: 12px;
       color: #8e8e93;
     }
     .project-badge {
-      font-size: 9px;
+      font-size: 11px;
       font-weight: 700;
       color: #e65100;
       background: #ffe0b2;
-      padding: 3px 8px;
+      padding: 5px 12px;
       border-radius: 6px;
       display: inline-block;
       width: fit-content;
       text-transform: uppercase;
-      letter-spacing: 0.3px;
+      letter-spacing: 0.5px;
     }
     .task-title {
       font-weight: 700;
-      font-size: 15px;
+      font-size: 20px;
       color: #000000;
       line-height: 1.35;
-      margin: 2px 0;
+      margin: 4px 0;
     }
     .time-info {
       display: flex;
       align-items: center;
-      gap: 8px;
-      font-size: 12px;
+      gap: 10px;
+      font-size: 15px;
       color: #3a3a3c;
       background: rgba(0, 0, 0, 0.05);
-      padding: 8px 12px;
-      border-radius: 8px;
+      padding: 12px 16px;
+      border-radius: 10px;
       border: 1px solid rgba(0, 0, 0, 0.02);
     }
     .btn-column {
       display: flex;
       flex-direction: column;
-      gap: 8px;
-      margin-top: 4px;
+      gap: 10px;
+      margin-top: 8px;
     }
     .btn-primary {
       background: #ff5722;
       color: white;
       border: none;
-      padding: 10px;
-      border-radius: 8px;
+      padding: 13px 20px;
+      border-radius: 10px;
       font-weight: 700;
-      font-size: 13px;
+      font-size: 15px;
       cursor: pointer;
-      box-shadow: 0 4px 10px rgba(255, 87, 34, 0.2);
+      box-shadow: 0 4px 12px rgba(255, 87, 34, 0.25);
       transition: all 0.2s ease;
     }
     .btn-primary:hover {
       background: #f4511e;
-      box-shadow: 0 6px 14px rgba(255, 87, 34, 0.3);
+      box-shadow: 0 6px 16px rgba(255, 87, 34, 0.35);
     }
     .btn-primary:active {
-      transform: scale(0.97);
+      transform: scale(0.98);
     }
     .btn-secondary {
       background: transparent;
       color: #ff5722;
       border: 1.5px solid #ff5722;
-      padding: 9px;
-      border-radius: 8px;
+      padding: 12px 20px;
+      border-radius: 10px;
       font-weight: 700;
-      font-size: 13px;
+      font-size: 15px;
       cursor: pointer;
       transition: all 0.2s ease;
     }
@@ -235,7 +242,7 @@ const showReminderPopup = (info) => {
       background: rgba(255, 87, 34, 0.08);
     }
     .btn-secondary:active {
-      transform: scale(0.97);
+      transform: scale(0.98);
     }
   `;
   shadowRoot.appendChild(style);
@@ -293,10 +300,15 @@ const showReminderPopup = (info) => {
   `;
 
   shadowRoot.appendChild(card);
-  document.body.appendChild(container);
+  if (document.body) {
+    document.body.appendChild(container);
+  } else {
+    document.documentElement.appendChild(container);
+  }
 
   // Trigger animations
   setTimeout(() => {
+    container.style.opacity = "1";
     card.classList.add("show");
   }, 10);
 
@@ -344,14 +356,13 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
       // Clear popup if activeReminder was removed
       const existingContainer = document.getElementById("miw-planner-reminder-container");
       if (existingContainer) {
+        existingContainer.style.opacity = "0";
         const shadow = existingContainer.shadowRoot;
         const card = shadow ? shadow.querySelector(".modal-card") : null;
         if (card) {
           card.classList.remove("show");
-          setTimeout(() => existingContainer.remove(), 400);
-        } else {
-          existingContainer.remove();
         }
+        setTimeout(() => existingContainer.remove(), 300);
       }
     }
   }
