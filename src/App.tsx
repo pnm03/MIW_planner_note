@@ -4405,8 +4405,8 @@ function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps
       </div>
 
       {showTimeModal && (
-        <Modal onClose={() => setShowTimeModal(false)}>
-          <div className="time-picker-modal" style={{ padding: "24px 20px 20px", maxWidth: "340px", width: "90vw", position: "relative", overflowY: "auto", maxHeight: "100%" }}>
+        <Modal onClose={() => setShowTimeModal(false)} narrow>
+          <div className="time-picker-modal" style={{ padding: "24px 20px 20px", width: "100%", position: "relative", overflowY: "auto", maxHeight: "100%" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px", borderBottom: "1px solid var(--line)", paddingBottom: "10px" }}>
               <div className="modal-kicker" style={{ margin: 0 }}>Cấu hình thời gian</div>
               <button
@@ -4847,10 +4847,12 @@ function Modal({
   children,
   onClose,
   wide = false,
+  narrow = false,
 }: {
   children: React.ReactNode;
   onClose: () => void;
   wide?: boolean;
+  narrow?: boolean;
 }) {
   return (
     <div
@@ -4859,7 +4861,7 @@ function Modal({
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      <div className={`modal-panel ${wide ? "modal-panel-wide" : ""}`}>
+      <div className={`modal-panel ${wide ? "modal-panel-wide" : ""} ${narrow ? "modal-panel-narrow" : ""}`}>
         {children}
       </div>
     </div>

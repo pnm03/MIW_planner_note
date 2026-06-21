@@ -1414,6 +1414,11 @@ button:disabled {
   width: min(100%, 860px);
 }
 
+.modal-panel-narrow {
+  width: min(100%, 340px);
+}
+
+
 .task-editor,
 .end-week-modal,
 .settings-modal,
