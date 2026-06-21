@@ -4832,10 +4832,17 @@ button:disabled {
   background: var(--field);
   color: var(--ink);
   text-align: center;
-  font-size: 14px;
-  font-family: inherit;
+  font-size: 16px;
+  font-family: "JetBrains Mono", monospace;
+  letter-spacing: 2px;
   outline: none;
   transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.time-picker-input::placeholder {
+  color: var(--ink-faint);
+  opacity: 0.45;
+  letter-spacing: 3px;
 }
 
 .time-picker-input:hover {

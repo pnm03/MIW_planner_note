@@ -4117,6 +4117,13 @@ interface TaskEditorProps {
   onSave: (task: Task) => void;
 }
 
+/** Formats raw input into HH:MM mask. Only digits allowed, colon auto-inserted. */
+const formatTimeMask = (raw: string): string => {
+  const digits = raw.replace(/[^0-9]/g, "").slice(0, 4);
+  if (digits.length <= 2) return digits;
+  return digits.slice(0, 2) + ":" + digits.slice(2);
+};
+
 const presetOptions = [
   { label: "1 phút", value: 1 },
   { label: "5 phút", value: 5 },
@@ -4986,17 +4993,18 @@ function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps
                     <input
                       type="text"
                       value={typedStart}
-                      placeholder={isNoDaySelected ? "--:--" : "00:00"}
+                      placeholder="__:__"
                       disabled={isNoDaySelected}
                       className="time-picker-input"
+                      maxLength={5}
                       onFocus={() => {
                         setStartOpen(true);
                         setEndOpen(false);
                       }}
                       onChange={(e) => {
-                        const val = e.target.value;
-                        setTypedStart(val);
-                        let checkVal = val.trim();
+                        const masked = formatTimeMask(e.target.value);
+                        setTypedStart(masked);
+                        let checkVal = masked.trim();
                         if (/^[0-9]:[0-5][0-9]$/.test(checkVal)) checkVal = "0" + checkVal;
                         if (/^([0-1][0-9]|2[0-3]):[0-5][0-9]$|^24:00$/.test(checkVal)) {
                           setTempDayTimes((prev) => {
@@ -5100,17 +5108,18 @@ function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps
                     <input
                       type="text"
                       value={typedEnd}
-                      placeholder={isNoDaySelected ? "--:--" : "00:00"}
+                      placeholder="__:__"
                       disabled={isNoDaySelected || !currentStart}
                       className="time-picker-input"
+                      maxLength={5}
                       onFocus={() => {
                         setEndOpen(true);
                         setStartOpen(false);
                       }}
                       onChange={(e) => {
-                        const val = e.target.value;
-                        setTypedEnd(val);
-                        let checkVal = val.trim();
+                        const masked = formatTimeMask(e.target.value);
+                        setTypedEnd(masked);
+                        let checkVal = masked.trim();
                         if (/^[0-9]:[0-5][0-9]$/.test(checkVal)) checkVal = "0" + checkVal;
                         if (/^([0-1][0-9]|2[0-3]):[0-5][0-9]$|^24:00$/.test(checkVal)) {
                           setTempDayTimes((prev) => {
