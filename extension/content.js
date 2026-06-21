@@ -81,7 +81,11 @@ const playReminderSound = (soundId) => {
 const showReminderPopup = (info) => {
   // 1. Play synthesizer sound
   const soundId = info.isEnd ? info.task.endReminderSound : info.task.reminderSound;
-  playReminderSound(soundId);
+  try {
+    playReminderSound(soundId);
+  } catch (err) {
+    console.warn("Failed to play reminder sound:", err);
+  }
 
   // 2. Clear any existing popup
   const existingContainer = document.getElementById("miw-planner-reminder-container");

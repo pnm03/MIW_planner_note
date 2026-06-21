@@ -30,22 +30,31 @@ const getWeekDates = (offset) => {
   });
 };
 
+const sendMessageToTab = (tab, info) => {
+  chrome.tabs.sendMessage(tab.id, { type: "SHOW_REMINDER", data: info }, (response) => {
+    if (chrome.runtime.lastError) {
+      sendSystemNotification(info);
+    } else {
+      sendSystemNotification(info);
+    }
+  });
+};
+
 const triggerReminder = (info) => {
-  // Try sending to the active tab to show the gorgeous popup overlay and play sound
-  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-    if (tabs && tabs.length > 0) {
-      const activeTab = tabs[0];
-      chrome.tabs.sendMessage(activeTab.id, { type: "SHOW_REMINDER", data: info }, (response) => {
-        // If content script fails to receive, fall back to browser system notification
-        if (chrome.runtime.lastError) {
-          sendSystemNotification(info);
+  // Query active tab in the last focused window
+  chrome.tabs.query({ active: true, lastFocusedWindow: true }, (tabs) => {
+    let targetTab = tabs && tabs[0];
+    if (!targetTab) {
+      // Fallback: active tab in any window
+      chrome.tabs.query({ active: true }, (allActiveTabs) => {
+        if (allActiveTabs && allActiveTabs.length > 0) {
+          sendMessageToTab(allActiveTabs[0], info);
         } else {
-          // Send system notification as well for maximum reliability
           sendSystemNotification(info);
         }
       });
     } else {
-      sendSystemNotification(info);
+      sendMessageToTab(targetTab, info);
     }
   });
 };
@@ -140,7 +149,7 @@ const checkReminders = () => {
                   const triggerTimeMs = startTimeMs - offset * 60 * 1000;
                   const diff = now.getTime() - triggerTimeMs;
 
-                  if (diff >= 0 && diff < 60_000) {
+                  if (diff >= 0 && diff < 10 * 60 * 1000) {
                     const reminderKey = `${task.id}-${day}-${offset}-${dateStr}`;
                     if (!notifiedKeys.has(reminderKey)) {
                       notifiedKeys.add(reminderKey);
@@ -170,7 +179,7 @@ const checkReminders = () => {
                   const triggerTimeMs = endTimeMs - offset * 60 * 1000;
                   const diff = now.getTime() - triggerTimeMs;
 
-                  if (diff >= 0 && diff < 60_000) {
+                  if (diff >= 0 && diff < 10 * 60 * 1000) {
                     const reminderKey = `${task.id}-${day}-end-${offset}-${dateStr}`;
                     if (!notifiedKeys.has(reminderKey)) {
                       notifiedKeys.add(reminderKey);
