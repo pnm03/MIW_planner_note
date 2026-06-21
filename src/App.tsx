@@ -4842,12 +4842,12 @@ function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps
                   return (
                     <div
                       key={day}
-                      className={`time-picker-day-btn-wrapper${isActive ? " active" : ""}${isSelected && !isActive ? " selected" : ""}`}
+                      className={`time-picker-day-btn-wrapper${isSelected ? " selected" : ""}`}
                     >
                       <button
                         key={day}
                         type="button"
-                        className={`time-picker-day-btn${isActive ? " active" : ""}${isSelected && !isActive ? " selected" : ""}`}
+                        className={`time-picker-day-btn${isSelected ? " selected" : ""}`}
                         onClick={() => {
                           let nextSelected = [...modalSelectedDays];
                           if (isSelected) {
@@ -4895,13 +4895,8 @@ function TaskEditor({ project, task, planner, onClose, onSave }: TaskEditorProps
                   ) : (
                     <>
                       <span style={{ fontSize: "12px", fontWeight: 600, color: "var(--ink)" }}>
-                        Sửa giờ cho {modalSelectedDays.length} ngày đã chọn: <span style={{ color: "var(--accent)" }}>{dayLabels[activeModalDay]}</span>
+                        Sửa giờ cho {modalSelectedDays.length} ngày đã chọn: <span style={{ color: "var(--accent)" }}>{dayKeys.filter(d => modalSelectedDays.includes(d)).map(d => dayLabels[d]).join(", ")}</span>
                       </span>
-                      {!draft.days.includes(activeModalDay) && (
-                        <span style={{ fontSize: "10px", color: "var(--accent)", background: "var(--accent-soft)", padding: "2px 6px", borderRadius: "4px" }}>
-                          Tự động gán
-                        </span>
-                      )}
                     </>
                   )}
                 </div>
